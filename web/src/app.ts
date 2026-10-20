@@ -270,7 +270,7 @@ function layout() {
   <div class="app">
     <aside class="notes">
       <header class="notes-head">
-        <a href="/" class="wordmark">Hardware Guide</a>
+        <a href="/" class="wordmark">Assembly</a>
         <details class="phone">
           <summary>Open on your phone</summary>
           <div class="qr" data-qr></div>

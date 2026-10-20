@@ -38,7 +38,7 @@ async function ask<T>(call: Call, web: boolean, strict = true): Promise<{ value:
     headers: {
       authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
       'content-type': 'application/json',
-      'x-title': 'hardware-guide',
+      'x-title': 'assembly',
     },
     body: JSON.stringify({
       model: MODEL,

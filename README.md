@@ -1,4 +1,4 @@
-# hi, this is hardware-guide
+# hi, this is assembly
 
 putting hardware together for the first time is confusing when all you get is text. "connect TX to RXD" means nothing if you've never held a jumper wire. this turns a build plan into a 3D assembly drawing you follow one step at a time, and checks your wiring from a photo.
 

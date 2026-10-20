@@ -33,7 +33,7 @@ app.use('/*', serveStatic({ root: './web/dist' }));
 app.get('*', serveStatic({ root: './web/dist', path: 'index.html' }));
 
 serve({ fetch: app.fetch, port: PORT, hostname: '0.0.0.0' }, () => {
-  console.log(`hardware-guide is up on http://localhost:${PORT}`);
+  console.log(`assembly is up on http://localhost:${PORT}`);
   for (const a of Object.values(networkInterfaces()).flat()) {
     if (a && a.family === 'IPv4' && !a.internal) console.log(`  on your phone (same wifi): http://${a.address}:${PORT}`);
   }

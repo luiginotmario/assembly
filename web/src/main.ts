@@ -11,7 +11,7 @@ if (match) {
 } else {
   root.innerHTML = `
     <main class="landing">
-      <p class="eyebrow">Hardware Guide</p>
+      <p class="eyebrow">Assembly</p>
       <h1>Put hardware together, one drawn step at a time.</h1>
       <p class="lede">Your coding agent writes the plan. This turns it into a 3D assembly drawing you follow step by step, and checks your wiring from a photo.</p>
       <div class="actions">
