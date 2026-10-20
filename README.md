@@ -9,13 +9,11 @@ putting hardware together for the first time is confusing when all you get is te
 
 ## how it works
 
-1. **add it to your agent.** assembly is an MCP server. in claude code:
+1. **add it to your agent.** assembly is an MCP server: add `https://assembly-guide.dev/mcp` (streamable http) in whichever coding agent you use, or paste the link to your agent and ask it to add it. in claude code that's:
 
    ```
    claude mcp add --transport http assembly https://assembly-guide.dev/mcp
    ```
-
-   any other agent: add `https://assembly-guide.dev/mcp` as an MCP server (streamable http).
 
 2. **ask for a manual.** "make me an assembly manual for this build." the agent uses the project's own design files where they exist (a robot's URDF, the STL/OBJ/GLB/3MF of each printed part or board), looks everything else up (board size, pinout as printed), writes the steps and gets back a link. parts we've measured on real boards (LD2450, LD2410C, CP2102) are drawn from those measurements.
 3. **follow it.** the drawing is your build: real shapes, real colours, every part where it really goes. each step slides its parts in from the way your hand brings them, lists its screws by size and count, turns the view when the work is on the other side, says "do this 4 times" when it repeats, and draws its wires in pin to pin in their real colours, with the pins to look at circled in red. open it on your phone with the qr code; both stay on the same step.

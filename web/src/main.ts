@@ -10,7 +10,6 @@ if (match) {
   void import('./manual').then(({ openManual }) => openManual(root, match[1]));
 } else {
   const mcp = `${location.origin}/mcp`;
-  const add = `claude mcp add --transport http assembly ${mcp}`;
   root.innerHTML = `
     <main class="landing">
       <p class="eyebrow">Assembly</p>
@@ -20,8 +19,8 @@ if (match) {
       <ol class="how">
         <li>
           <h2>Add Assembly to your agent</h2>
-          <div class="command"><code>${add}</code><button class="button" data-copy="${add}">Copy</button></div>
-          <p class="hint">Any other agent: add <code>${mcp}</code> as an MCP server.</p>
+          <div class="command"><code>${mcp}</code><button class="button" data-copy="${mcp}">Copy</button></div>
+          <p class="hint">Add it as an MCP server in whichever coding agent you use, or just paste it to your agent and ask it to add it.</p>
         </li>
         <li>
           <h2>Ask it for a manual</h2>
