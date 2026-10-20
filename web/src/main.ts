@@ -14,8 +14,8 @@ if (match) {
   root.innerHTML = `
     <main class="landing">
       <p class="eyebrow">Assembly</p>
-      <h1>Build it, one drawn step at a time.</h1>
-      <p class="lede">Your coding agent already knows your parts and how they fit together. With Assembly it makes you a 3D manual of whatever you're building, like the one in the box: every part, screw and wire, step by step, looking like what's on your desk. Stuck on one? Take a photo and it checks it.</p>
+      <h1>A simple manual for anything you build.</h1>
+      <p class="lede">Toy bricks come with a booklet: one picture per step, the pieces it needs, nothing else to read. Hardware never does. Assembly lets your coding agent make you one, with every part, screw and wire drawn in 3D the way it looks on your desk.</p>
 
       <ol class="how">
         <li>

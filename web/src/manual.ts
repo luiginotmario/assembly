@@ -44,10 +44,44 @@ export async function openManual(root: HTMLElement, id: string) {
 
   // ---------- steps ----------
 
+  const frame = $('.frame');
+  let turning: Animation | null = null;
+  /** the page you were on turns over like a booklet page, the next step already drawn beneath */
+  const turnPage = (forward: boolean) => {
+    turning?.finish();
+    const sheet = document.createElement('div');
+    sheet.className = 'turning';
+    sheet.append(drawing.snapshot());
+    // what's printed on the page goes with it: the title, the step number, the parts box, the labels
+    for (const selector of ['.sheet-title', '.callouts']) {
+      const printed = frame.querySelector(selector);
+      if (printed) sheet.append(printed.cloneNode(true));
+    }
+    frame.append(sheet);
+    const edge = forward ? 'left' : 'right';
+    sheet.style.transformOrigin = `${edge} center`;
+    const angle = forward ? -100 : 100;
+    turning = reduceMotion
+      ? sheet.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 180, easing: 'ease' })
+      : sheet.animate(
+          [
+            { transform: 'perspective(2600px) rotateY(0deg)', filter: 'brightness(1)' },
+            { transform: `perspective(2600px) rotateY(${angle}deg)`, filter: 'brightness(0.86)' },
+          ],
+          { duration: 620, easing: 'cubic-bezier(0.5, 0, 0.2, 1)' },
+        );
+    const done = turning;
+    void done.finished.catch(() => {}).finally(() => {
+      sheet.remove();
+      if (turning === done) turning = null;
+    });
+  };
+
   const go = (to: number) => {
     if (!manual) return;
     const next = Math.max(0, Math.min(manual.guide.steps.length - 1, to));
     if (next === step) return;
+    turnPage(next > step);
     step = next;
     drawing.setStep(step);
     renderStep();
@@ -83,6 +117,8 @@ export async function openManual(root: HTMLElement, id: string) {
       step = next.step;
       drawing.setStep(step, !first);
     } else if (next.step !== step) {
+      // another device moved on: this page turns too
+      turnPage(next.step > step);
       step = next.step;
       drawing.setStep(step);
     }
@@ -304,12 +340,15 @@ export async function openManual(root: HTMLElement, id: string) {
     $('[data-summary]').textContent = guide.summary;
     $('[data-count]').textContent = `${step + 1} of ${guide.steps.length}`;
     $('[data-step-title]').textContent = current?.title ?? '';
-    const times = current?.times ?? 1;
-    const repeat = $('[data-times]');
-    repeat.hidden = times < 2;
-    repeat.textContent = `Do this ${times} times`;
     $('[data-instruction]').textContent = current?.instruction ?? '';
-    $('[data-needs]').innerHTML = needs(guide, step);
+    // the page itself: a big step number and the box of what this step uses
+    $('[data-big-step]').textContent = String(step + 1);
+    const box = $('[data-callout]');
+    box.innerHTML = callout(guide, step);
+    box.hidden = !box.innerHTML;
+    for (const img of box.querySelectorAll<HTMLImageElement>('img[data-thumb]')) {
+      void drawing.thumbnail(img.dataset.thumb!).then((src) => src && (img.src = src));
+    }
     const caution = $('[data-caution]');
     caution.hidden = !current?.caution;
     caution.querySelector('span')!.textContent = current?.caution ?? '';
@@ -335,8 +374,9 @@ export async function openManual(root: HTMLElement, id: string) {
   }
 }
 
-/** what this step uses, like the box in the corner of a LEGO page: new parts, then fasteners */
-function needs(guide: Guide, index: number) {
+/** what this step uses, like the box in the corner of a LEGO page: each new part pictured with how
+ * many, then the screws and the like, then how many times to do it */
+function callout(guide: Guide, index: number) {
   const steps = guide.steps;
   const before = new Set(
     steps.slice(0, index).flatMap((s) => [...s.show, ...(s.place ?? []).map((p) => p.part), ...s.connections.flatMap((c) => [c.from.part, c.to.part])]),
@@ -345,19 +385,26 @@ function needs(guide: Guide, index: number) {
   const fresh = [...new Set([...(step.place ?? []).map((p) => p.part), ...step.show, ...step.connections.flatMap((c) => [c.from.part, c.to.part])])].filter(
     (id) => !before.has(id),
   );
-  const counts = new Map<string, number>();
+  // identical parts (two adapters) are one picture with a count
+  const groups = new Map<string, { id: string; name: string; n: number }>();
   for (const id of fresh) {
     const part = guide.parts.find((p) => p.id === id);
-    if (part) counts.set(part.name, (counts.get(part.name) ?? 0) + 1);
+    if (!part) continue;
+    const key = `${part.model}|${part.mesh?.url ?? ''}`;
+    const group = groups.get(key);
+    if (group) group.n += 1;
+    else groups.set(key, { id, name: part.name, n: 1 });
   }
-  const rows = [
-    ...[...counts].map(([name, n]) => `<li><b>${n}×</b><span>${esc(name)}</span></li>`),
+  const items = [
+    ...[...groups.values()].map(
+      (g) => `<li title="${esc(g.name)}"><img data-thumb="${esc(g.id)}" alt="${esc(g.name)}" /><b>${g.n}x</b></li>`,
+    ),
     ...(step.fasteners ?? []).map(
-      (f) =>
-        `<li class="fastener"><b>${f.count}×</b><span>${esc(f.size)} ${esc(f.kind)}${f.count > 1 && !/s$/.test(f.kind) ? 's' : ''}${f.note ? ` <em>${esc(f.note)}</em>` : ''}</span>${screwIcon(f.kind)}</li>`,
+      (f) => `<li class="fastener" title="${esc(`${f.size} ${f.kind}${f.note ? ` (${f.note})` : ''}`)}">${screwIcon(f.kind)}<b>${f.count}x</b><small>${esc(f.size)}</small></li>`,
     ),
   ];
-  return rows.length ? `<div class="tb-label">You need</div><ul class="needs">${rows.join('')}</ul>` : '';
+  const times = step.times ?? 1;
+  return (items.length ? `<ul class="parts-box">${items.join('')}</ul>` : '') + (times > 1 ? `<span class="repeat">${times}x</span>` : '');
 }
 
 /** a small drawing of the fastener, the way manuals show them life-size in the corner */
@@ -411,6 +458,10 @@ function layout(example: boolean) {
         <a href="/" class="wordmark">Assembly${example ? ' · example' : ''}</a>
         <h1 data-title></h1>
         <p data-summary></p>
+        <div class="page-step">
+          <span class="step-number" data-big-step></span>
+          <div class="callout" data-callout hidden></div>
+        </div>
       </header>
       ${
         example
@@ -441,9 +492,7 @@ function layout(example: boolean) {
         </div>
       </div>
       <h2 data-step-title></h2>
-      <p class="times" data-times hidden></p>
       <p class="instruction" data-instruction></p>
-      <div data-needs></div>
       <ul class="wires" data-wires></ul>
       <p class="caution" data-caution hidden><b>Caution</b><span></span></p>
       <p class="check" data-check hidden><b>Check</b><span></span></p>

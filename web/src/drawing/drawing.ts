@@ -94,6 +94,79 @@ export class Drawing {
     this.renderer.setAnimationLoop(() => this.frame());
   }
 
+  /** the page as it looks right now, on paper, for turning it over */
+  snapshot() {
+    this.renderer.render(this.scene, this.camera);
+    const source = this.renderer.domElement;
+    const page = document.createElement('canvas');
+    page.width = source.width;
+    page.height = source.height;
+    const ctx = page.getContext('2d')!;
+    ctx.fillStyle = paper;
+    ctx.fillRect(0, 0, page.width, page.height);
+    ctx.drawImage(source, 0, 0);
+    return page;
+  }
+
+  private thumbs = new Map<string, Promise<string>>();
+  private thumbRenderer: THREE.WebGLRenderer | null = null;
+
+  /** a small picture of one part on its own, like the parts box on a LEGO page */
+  thumbnail(id: string) {
+    let pending = this.thumbs.get(id);
+    if (!pending) {
+      pending = this.drawThumbnail(id);
+      this.thumbs.set(id, pending);
+    }
+    return pending;
+  }
+
+  private async drawThumbnail(id: string) {
+    const part = this.guide?.parts.find((p) => p.id === id);
+    if (!part) return '';
+    // on its own, lying the way it would on the table
+    const model = new PartModel({ ...part, pose: undefined });
+    const scene = new THREE.Scene();
+    const box = new THREE.Box3().setFromObject(model.group);
+    const centre = box.getCenter(new THREE.Vector3());
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, -4000, 4000);
+    camera.position.copy(centre).addScaledVector(VIEWS.iso.clone().normalize(), DISTANCE);
+    camera.lookAt(centre);
+    camera.updateMatrixWorld(true);
+    // fit the part as the camera sees it, filling the picture
+    const view = camera.matrixWorld.clone().invert();
+    const seen = new THREE.Box3();
+    for (let i = 0; i < 8; i++) {
+      seen.expandByPoint(new THREE.Vector3(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z).applyMatrix4(view));
+    }
+    const half = (Math.max(seen.max.x - seen.min.x, seen.max.y - seen.min.y) / 2) * 1.08;
+    const mid = seen.getCenter(new THREE.Vector3());
+    Object.assign(camera, { left: mid.x - half, right: mid.x + half, top: mid.y + half, bottom: mid.y - half });
+    camera.updateProjectionMatrix();
+    lights(scene, camera);
+    scene.add(model.group);
+    model.setOpacity(1);
+    if (!this.thumbRenderer) {
+      this.thumbRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      this.thumbRenderer.setPixelRatio(2);
+      this.thumbRenderer.setSize(96, 96);
+    }
+    // a photo on a board takes a moment to arrive
+    for (let i = 0; i < 6; i++) {
+      let waiting = false;
+      model.group.traverse((o) => {
+        for (const m of [(o as THREE.Mesh).material].flat()) {
+          const map = (m as THREE.MeshBasicMaterial | undefined)?.map;
+          if (map && !map.image) waiting = true;
+        }
+      });
+      if (!waiting) break;
+      await new Promise((done) => setTimeout(done, 150));
+    }
+    this.thumbRenderer.render(scene, camera);
+    return this.thumbRenderer.domElement.toDataURL('image/png');
+  }
+
   /** downloads the guide's 3d models before it's drawn */
   prepare(guide: Guide, progress: (done: number, total: number) => void) {
     return loadAll(guide.parts.flatMap((p) => (p.mesh ? [p.mesh] : [])), progress);
@@ -107,6 +180,7 @@ export class Drawing {
     this.arriving.clear();
     this.guide = guide;
     this.step = -1;
+    this.thumbs.clear();
 
     // the build: every posed part where it belongs, resting on the table
     const posed = guide.parts.filter((p) => p.pose);
