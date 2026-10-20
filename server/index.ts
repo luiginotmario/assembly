@@ -10,9 +10,9 @@ const { serveStatic } = await import('@hono/node-server/serve-static');
 const { readFile } = await import('node:fs/promises');
 const { networkInterfaces } = await import('node:os');
 const path = await import('node:path');
-const { app } = await import('./app');
-const { hasKey } = await import('./llm');
-const sessions = await import('./sessions');
+const { app } = await import('./app.js');
+const { hasKey } = await import('./llm.js');
+const sessions = await import('./sessions.js');
 
 const PORT = Number(process.env.PORT ?? 8787);
 

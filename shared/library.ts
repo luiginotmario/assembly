@@ -1,4 +1,4 @@
-import type { Part } from './types';
+import type { Part } from './types.js';
 
 // Parts we know exactly: sizes from the datasheets, pin order checked against real boards.
 // The guide agent copies these instead of guessing whenever a plan mentions one.

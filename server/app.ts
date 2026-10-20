@@ -2,11 +2,11 @@ import { Hono } from 'hono';
 import { getCookie } from 'hono/cookie';
 import { networkInterfaces } from 'node:os';
 import sharp from 'sharp';
-import { example } from '../shared/example';
-import type { Photo } from '../shared/types';
-import { ask, buildGuide, readPhoto, say } from './agent';
-import { MODEL, hasKey } from './llm';
-import * as sessions from './sessions';
+import { example } from '../shared/example.js';
+import type { Photo } from '../shared/types.js';
+import { ask, buildGuide, readPhoto, say } from './agent.js';
+import { MODEL, hasKey } from './llm.js';
+import * as sessions from './sessions.js';
 
 // The api, the same locally (server/index.ts) and on Vercel (api/[...route].ts).
 
@@ -33,6 +33,20 @@ app.use('/api/*', async (c, next) => {
   if (!CODE || c.req.path === '/api/info') return next();
   const given = c.req.header('x-access-code') ?? c.req.query('code') ?? getCookie(c, 'access_code');
   if (given !== CODE) return c.json({ error: 'This needs the access code.', locked: true }, 401);
+  return next();
+});
+
+// on vercel, sessions need the redis database; say so plainly instead of failing oddly
+app.use('/api/sessions/*', async (c, next) => {
+  if (process.env.VERCEL && !sessions.cloud) {
+    return c.json({ error: 'Session storage isn’t set up yet: link an Upstash Redis database to this Vercel project.' }, 503);
+  }
+  return next();
+});
+app.use('/api/sessions', async (c, next) => {
+  if (process.env.VERCEL && !sessions.cloud) {
+    return c.json({ error: 'Session storage isn’t set up yet: link an Upstash Redis database to this Vercel project.' }, 503);
+  }
   return next();
 });
 

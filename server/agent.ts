@@ -1,9 +1,9 @@
 import sharp from 'sharp';
-import type { Guide, Message, Photo, PhotoAnalysis, Session, Visual } from '../shared/types';
-import { image, json, text, type Content } from './llm';
-import * as schemas from './schemas';
-import { capture, matchGuide, partsOf } from './hardware';
-import { changed, getFile, id, putFile } from './sessions';
+import type { Guide, Message, Photo, PhotoAnalysis, Session, Visual } from '../shared/types.js';
+import { image, json, text, type Content } from './llm.js';
+import * as schemas from './schemas.js';
+import { capture, matchGuide, partsOf } from './hardware.js';
+import { changed, getFile, id, putFile } from './sessions.js';
 
 const GUIDE = `You turn a hardware build plan into a step-by-step assembly guide for someone who has never wired electronics before. The guide is drawn as a 3D line drawing, so the geometry you give is what they'll see.
 

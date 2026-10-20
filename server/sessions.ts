@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { Session } from '../shared/types';
+import type { Session } from '../shared/types.js';
 
 // Sessions, with no accounts: whoever has the link is in the session.
 //

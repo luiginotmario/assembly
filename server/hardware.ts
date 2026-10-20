@@ -1,10 +1,10 @@
 import sharp from 'sharp';
-import { library } from '../shared/library';
-import type { Lookup, Part, Photo, Pin, Session, Side, Source } from '../shared/types';
-import { image, json, searched, text } from './llm';
-import * as schemas from './schemas';
-import { changed, putFile } from './sessions';
-import { around, straighten, type Point } from './warp';
+import { library } from '../shared/library.js';
+import type { Lookup, Part, Photo, Pin, Session, Side, Source } from '../shared/types.js';
+import { image, json, searched, text } from './llm.js';
+import * as schemas from './schemas.js';
+import { changed, putFile } from './sessions.js';
+import { around, straighten, type Point } from './warp.js';
 
 // The real hardware. Parts are looked up on the web, never filled in from what a model
 // remembers, and every board that shows up in a photo is cut out, straightened and laid

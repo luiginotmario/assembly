@@ -1,5 +1,5 @@
-import { library } from './library';
-import type { Guide, Part } from './types';
+import { library } from './library.js';
+import type { Guide, Part } from './types.js';
 
 // A real build, done by hand once: two radar sensors wired to a Mac through two
 // CP2102 USB adapters. Shown when someone wants to see the tool without an API key.
