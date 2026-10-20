@@ -22,15 +22,19 @@ export class Wire {
     readonly a: THREE.Vector3,
     readonly b: THREE.Vector3,
     readonly colour: string,
+    /** where the cable is routed, in order; without it, it arcs over */
+    via: THREE.Vector3[] = [],
   ) {
     const lift = 10 + a.distanceTo(b) * 0.32;
     const up = new THREE.Vector3(0, 1, 0);
-    const curve = new THREE.CubicBezierCurve3(
-      a.clone().addScaledVector(up, PLUG),
-      a.clone().addScaledVector(up, PLUG + lift),
-      b.clone().addScaledVector(up, PLUG + lift),
-      b.clone().addScaledVector(up, PLUG),
-    );
+    const curve: THREE.Curve<THREE.Vector3> = via.length
+      ? new THREE.CatmullRomCurve3([a.clone().addScaledVector(up, PLUG), ...via, b.clone().addScaledVector(up, PLUG)], false, 'centripetal')
+      : new THREE.CubicBezierCurve3(
+          a.clone().addScaledVector(up, PLUG),
+          a.clone().addScaledVector(up, PLUG + lift),
+          b.clone().addScaledVector(up, PLUG + lift),
+          b.clone().addScaledVector(up, PLUG),
+        );
     this.outline = new THREE.MeshBasicMaterial({ color: ink, side: THREE.BackSide, transparent: true });
     const core = new THREE.MeshBasicMaterial({ color: wireColor(colour), transparent: true });
     const outer = new THREE.Mesh(new THREE.TubeGeometry(curve, SEGMENTS, 0.78, RADIAL), this.outline);

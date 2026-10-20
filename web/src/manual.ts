@@ -65,11 +65,20 @@ export async function openManual(root: HTMLElement, id: string) {
     if (event.key === 'ArrowLeft') go(step - 1);
   });
 
-  const take = (next: Manual) => {
+  const loading = $('[data-loading]');
+  const take = async (next: Manual) => {
     manual = next;
     const key = JSON.stringify(next.guide);
     if (key !== guideKey) {
       guideKey = key;
+      // the real 3d parts come first, so the build never draws half-made
+      if (next.guide.parts.some((p) => p.mesh)) {
+        loading.hidden = false;
+        const { failed } = await drawing.prepare(next.guide, (done, total) => (loading.textContent = `Loading the 3D parts… ${done} of ${total}`));
+        loading.hidden = true;
+        if (failed.length) console.warn('some 3d parts could not be loaded and are drawn as blocks:', failed);
+        if (guideKey !== key) return;
+      }
       drawing.setGuide(next.guide);
       step = next.step;
       drawing.setStep(step, !first);
@@ -98,7 +107,7 @@ export async function openManual(root: HTMLElement, id: string) {
 
   if (example) {
     const { example: guide } = await import('../../shared/example');
-    take({ id, createdAt: 0, updatedAt: 0, guide, step: 0, photos: [], key: null });
+    await take({ id, createdAt: 0, updatedAt: 0, guide, step: 0, photos: [], key: null });
     return;
   }
 
@@ -295,7 +304,12 @@ export async function openManual(root: HTMLElement, id: string) {
     $('[data-summary]').textContent = guide.summary;
     $('[data-count]').textContent = `${step + 1} of ${guide.steps.length}`;
     $('[data-step-title]').textContent = current?.title ?? '';
+    const times = current?.times ?? 1;
+    const repeat = $('[data-times]');
+    repeat.hidden = times < 2;
+    repeat.textContent = `Do this ${times} times`;
     $('[data-instruction]').textContent = current?.instruction ?? '';
+    $('[data-needs]').innerHTML = needs(guide, step);
     const caution = $('[data-caution]');
     caution.hidden = !current?.caution;
     caution.querySelector('span')!.textContent = current?.caution ?? '';
@@ -308,10 +322,49 @@ export async function openManual(root: HTMLElement, id: string) {
           `<li><i class="swatch" style="--wire:${esc(c.wire || 'transparent')}"></i>${end(guide, c.from)}<b>→</b>${end(guide, c.to)}<em>${esc(c.wire)}</em></li>`,
       )
       .join('');
+    $('[data-part-count]').textContent = String(guide.parts.length);
+    const parts = $<HTMLDetailsElement>('[data-parts]');
+    if (!parts.dataset.set) {
+      parts.dataset.set = '1';
+      // a short list is open; a big build's list waits to be asked for
+      parts.open = guide.parts.length <= 8;
+    }
     $('[data-bom]').innerHTML = guide.parts.map((p, i) => `<li><b>${i + 1}</b>${esc(p.name)}<em>${esc(p.model)} · ${origin(p)}</em></li>`).join('');
     $<HTMLButtonElement>('[data-prev]').disabled = step <= 0;
     $<HTMLButtonElement>('[data-next]').disabled = step >= guide.steps.length - 1;
   }
+}
+
+/** what this step uses, like the box in the corner of a LEGO page: new parts, then fasteners */
+function needs(guide: Guide, index: number) {
+  const steps = guide.steps;
+  const before = new Set(
+    steps.slice(0, index).flatMap((s) => [...s.show, ...(s.place ?? []).map((p) => p.part), ...s.connections.flatMap((c) => [c.from.part, c.to.part])]),
+  );
+  const step = steps[index];
+  const fresh = [...new Set([...(step.place ?? []).map((p) => p.part), ...step.show, ...step.connections.flatMap((c) => [c.from.part, c.to.part])])].filter(
+    (id) => !before.has(id),
+  );
+  const counts = new Map<string, number>();
+  for (const id of fresh) {
+    const part = guide.parts.find((p) => p.id === id);
+    if (part) counts.set(part.name, (counts.get(part.name) ?? 0) + 1);
+  }
+  const rows = [
+    ...[...counts].map(([name, n]) => `<li><b>${n}×</b><span>${esc(name)}</span></li>`),
+    ...(step.fasteners ?? []).map(
+      (f) =>
+        `<li class="fastener"><b>${f.count}×</b><span>${esc(f.size)} ${esc(f.kind)}${f.count > 1 && !/s$/.test(f.kind) ? 's' : ''}${f.note ? ` <em>${esc(f.note)}</em>` : ''}</span>${screwIcon(f.kind)}</li>`,
+    ),
+  ];
+  return rows.length ? `<div class="tb-label">You need</div><ul class="needs">${rows.join('')}</ul>` : '';
+}
+
+/** a small drawing of the fastener, the way manuals show them life-size in the corner */
+function screwIcon(kind: string) {
+  if (kind === 'nut') return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4h10l5 8-5 8H7l-5-8z" /><circle cx="12" cy="12" r="3.6" /></svg>`;
+  if (kind === 'washer') return `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="3.6" /></svg>`;
+  return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9.5h5v5H3z" /><path d="M8 11h13M8 13h13M10 11l1 2M13 11l1 2M16 11l1 2M19 11l1 2" /></svg>`;
 }
 
 const list = (names: string[]) => (names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : (names[0] ?? ''));
@@ -321,6 +374,8 @@ function origin(part: Part) {
   const link = part.sources?.[0];
   const from = part.texture
     ? 'from your photo'
+    : part.mesh
+      ? `<a href="${esc(part.mesh.url)}" target="_blank" rel="noreferrer">its real 3D model</a>`
     : part.source === 'library'
       ? 'measured on a real board'
       : link
@@ -351,6 +406,7 @@ function layout(example: boolean) {
   <div class="manual">
     <main class="frame">
       <div class="viewport" id="drawing"></div>
+      <p class="loading" data-loading hidden></p>
       <header class="sheet-title">
         <a href="/" class="wordmark">Assembly${example ? ' · example' : ''}</a>
         <h1 data-title></h1>
@@ -385,12 +441,16 @@ function layout(example: boolean) {
         </div>
       </div>
       <h2 data-step-title></h2>
+      <p class="times" data-times hidden></p>
       <p class="instruction" data-instruction></p>
+      <div data-needs></div>
       <ul class="wires" data-wires></ul>
       <p class="caution" data-caution hidden><b>Caution</b><span></span></p>
       <p class="check" data-check hidden><b>Check</b><span></span></p>
-      <div class="tb-label">Parts</div>
-      <ol class="bom" data-bom></ol>
+      <details class="parts" data-parts>
+        <summary class="tb-label">Parts <span data-part-count></span></summary>
+        <ol class="bom" data-bom></ol>
+      </details>
     </section>
 
     <div class="backdrop" data-connect hidden>

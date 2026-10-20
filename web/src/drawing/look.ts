@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
-// the drawing's palette: dark lines on white, system red for "do this now", real wire colours
+// the drawing's look: parts in their real colours and lit like objects on a desk, with a fine
+// outline so it still reads like a manual; system red for "do this now", real wire colours
 
 export const ink = '#1d1d1f';
 export const paper = '#ffffff';
@@ -22,8 +23,8 @@ const wireColors: Record<string, string> = {
 
 export const wireColor = (name: string) => wireColors[name.trim().toLowerCase()] ?? '#9a9a94';
 
-/** a board's colour, mostly washed out to paper so the drawing stays ink-first */
-export function tint(hex: string, amount = 0.14) {
+/** a part's real colour (nudged a little toward paper, so a black board isn't a hole) */
+export function tint(hex: string, amount = 0.92) {
   const base = new THREE.Color(paper);
   try {
     return base.lerp(new THREE.Color(hex), amount);
@@ -32,22 +33,36 @@ export function tint(hex: string, amount = 0.14) {
   }
 }
 
-export const fill = (color: THREE.ColorRepresentation) =>
-  new THREE.MeshBasicMaterial({
+export type Finish = 'matte' | 'gloss' | 'metal';
+
+/** a lit surface: printed plastic is matte, solder mask a little glossy, metal catches the light */
+export const fill = (color: THREE.ColorRepresentation, finish: Finish = 'matte') =>
+  new THREE.MeshStandardMaterial({
     color,
+    roughness: finish === 'gloss' ? 0.38 : finish === 'metal' ? 0.32 : 0.72,
+    metalness: finish === 'metal' ? 0.55 : 0,
     transparent: true,
     polygonOffset: true,
     polygonOffsetFactor: 1,
     polygonOffsetUnits: 1,
   });
 
+/** soft light from above plus a key light that follows the camera, like a lamp over the desk */
+export function lights(scene: THREE.Scene, camera: THREE.Camera) {
+  scene.add(new THREE.HemisphereLight('#ffffff', '#d9d9df', 1.9));
+  const key = new THREE.DirectionalLight('#ffffff', 1.5);
+  key.position.set(-0.4, 1, 0.7);
+  camera.add(key);
+  scene.add(camera);
+}
+
 export const lines = (color: THREE.ColorRepresentation = ink) =>
   new THREE.LineBasicMaterial({ color, transparent: true });
 
 /** a solid with its outline drawn, like a technical drawing */
-export function outlined(geometry: THREE.BufferGeometry, color: THREE.ColorRepresentation, edge: THREE.ColorRepresentation = ink) {
+export function outlined(geometry: THREE.BufferGeometry, color: THREE.ColorRepresentation, edge: THREE.ColorRepresentation = ink, finish: Finish = 'matte') {
   const group = new THREE.Group();
-  const body = new THREE.Mesh(geometry, fill(color));
+  const body = new THREE.Mesh(geometry, fill(color, finish));
   const outline = new THREE.LineSegments(new THREE.EdgesGeometry(geometry, 30), lines(edge));
   outline.userData.outline = true;
   group.add(body, outline);

@@ -28,6 +28,15 @@ export type Feature = {
   label: string;
 };
 
+export type Vec3 = [number, number, number];
+
+/** where a part sits in the finished build, like in CAD: millimetres, z up, x to the right, y away
+ * from you; turn is degrees about x, then y, then z */
+export type Pose = { at: Vec3; turn: Vec3 };
+
+/** the part's real 3d model: STL, OBJ, GLB/GLTF or 3MF */
+export type Mesh = { url: string; units: 'mm' | 'cm' | 'm' | 'in' };
+
 export type Part = {
   id: string;
   name: string;
@@ -50,8 +59,14 @@ export type Part = {
   texture?: string;
   /** the pages the specs came from */
   sources?: Source[];
+  /** drawn from its real 3d model instead of a generated board */
+  mesh?: Mesh;
+  /** where it sits once assembled; parts without one lie on the table beside the build */
+  pose?: Pose;
+  finish?: 'matte' | 'gloss' | 'metal';
 };
 
+/** a pin, or a whole part ("" for a part with no pins, like a motor) */
 export type End = { part: string; pin: string };
 
 export type Connection = {
@@ -60,7 +75,29 @@ export type Connection = {
   /** the real wire colour if known, e.g. "black"; empty if not */
   wire: string;
   note: string;
+  /** how the cable runs: points (mm, like a pose) or part ids it goes past, in order */
+  via?: (Vec3 | string)[];
+  /** unplugged again once the step is done (a cable used only to set something up) */
+  temporary?: boolean;
 };
+
+/** where a part comes in from as it slides into place */
+export type Approach = 'above' | 'below' | 'front' | 'back' | 'left' | 'right';
+
+export type Placement = { part: string; from: Approach | Vec3; distance: number };
+
+export type Fastener = {
+  kind: 'screw' | 'bolt' | 'nut' | 'washer' | 'insert' | 'standoff' | 'zip tie' | 'other';
+  /** as sold, e.g. "M2x6", "M3 x 12 countersunk" */
+  size: string;
+  count: number;
+  /** the part it goes into, if any */
+  into: string;
+  note: string;
+};
+
+/** where the camera looks from: e.g. turn to "back" to show the other side */
+export type View = 'iso' | 'iso-back' | 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom';
 
 export type Step = {
   title: string;
@@ -75,6 +112,13 @@ export type Step = {
   caution: string;
   /** what to verify before moving on, or empty */
   check: string;
+  /** parts that slide into place in this step */
+  place?: Placement[];
+  /** screws, nuts and the like this step uses */
+  fasteners?: Fastener[];
+  view?: View | null;
+  /** do this step this many times (one per finger, say) */
+  times?: number;
 };
 
 export type Guide = {

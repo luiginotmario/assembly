@@ -3,6 +3,7 @@ import sharp from 'sharp';
 import { check, keepPhotos, type Draft } from '../shared/manual.js';
 import type { Connection, End, Guide } from '../shared/types.js';
 import { library } from '../shared/library.js';
+import { readCad, type CadPart } from './cad.js';
 import * as manuals from './manuals.js';
 
 // What coding agents use to make manuals: a remote MCP server (streamable HTTP, stateless,
@@ -14,7 +15,8 @@ const SUPPORTED = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
 
 const verifiedParts = library.map((k) => k.part.model).join(', ');
 
-const INSTRUCTIONS = `Assembly turns a hardware build into a step-by-step 3D assembly manual the user follows on their computer or phone. When the user is about to physically wire or assemble hardware (boards, sensors, adapters, cables), make them a manual with create_manual and give them the link. Look every part up on the web first; never fill in sizes or pinouts from memory.
+const INSTRUCTIONS = `Assembly turns any hardware build into a step-by-step 3D assembly manual, like the one in a LEGO box: electronics, wiring, 3D-printed parts, robots, enclosures, anything. When the user is about to physically wire or assemble hardware, make them a manual with create_manual and give them the link.
+The drawing should look like what's on their desk, so the less they have to translate, the fewer mistakes: use the project's real design files where they exist (read_cad on a URDF, or STL/OBJ/GLB/3MF files per part), and look every part up on the web; never fill in sizes or pinouts from memory.
 When the user says they took a photo on the manual page, or asks if something is right, use get_manual to find it, get_photo to look at it, and answer_photo to answer: the page then shows your answer and highlights the part and pins you mean.`;
 
 /** what the agent passes on to the user with the link */
@@ -28,34 +30,66 @@ const side = {
   description: 'Board edge, looking down at the board with its printed labels readable: top = far edge, bottom = near edge.',
 };
 
+const vec3 = { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 };
+const end = {
+  type: 'object',
+  required: ['part'],
+  properties: { part: { type: 'string' }, pin: { type: 'string', description: 'A pin id or printed label; leave empty for a part without pins (a motor, a battery pack).' } },
+};
+
 const manualSchema = {
   type: 'object',
-  required: ['title', 'parts', 'steps'],
+  required: ['title', 'steps'],
   properties: {
-    title: { type: 'string', description: 'What is being built, a few words. E.g. "Radar sensors to a Mac".' },
+    title: { type: 'string', description: 'What is being built, a few words. E.g. "SO-101 follower arm", "Radar sensors to a Mac".' },
     summary: { type: 'string', description: 'One sentence about the build.' },
-    parts: {
+    cad: {
       type: 'array',
-      description: 'Every physical item that gets wired or assembled, once each. Two identical boards are two parts. Not jumper wires or tools.',
+      description:
+        "The project's own design files, read into parts with their real 3D shapes and positions (see read_cad): a URDF (robots), or single STL/OBJ/GLB/3MF files. Public raw links, e.g. raw.githubusercontent.com. Use only to keep some of the pieces.",
       items: {
         type: 'object',
-        required: ['id', 'name', 'size', 'pins'],
+        required: ['url'],
+        properties: { url: { type: 'string' }, only: { type: 'array', items: { type: 'string' }, description: 'Part ids to keep from this file.' } },
+      },
+    },
+    parts: {
+      type: 'array',
+      description:
+        'Every physical item: boards, modules, motors, printed parts, cases, batteries, cables that matter. Two identical items are two parts. Not jumper wires, screws (those go in steps.fasteners) or tools. Pieces from cad come in by themselves; list one here only to name it better, add a note or sources.',
+      items: {
+        type: 'object',
+        required: ['id', 'name'],
         properties: {
-          id: { type: 'string', description: 'Short lowercase id used in steps, e.g. "ld2450", "usb1".' },
-          name: { type: 'string', description: 'Everyday name, e.g. "USB adapter 1".' },
-          model: { type: 'string', description: 'Exact model as printed or sold, e.g. "HLK-LD2450", "CP2102 USB to TTL".' },
+          id: { type: 'string', description: 'Short lowercase id used in steps, e.g. "ld2450", "usb1", "servo-shoulder".' },
+          name: { type: 'string', description: 'Everyday name, e.g. "USB adapter 1", "Shoulder servo".' },
+          model: { type: 'string', description: 'Exact model as printed or sold, e.g. "HLK-LD2450", "Feetech STS3215".' },
           kind: { type: 'string', enum: ['board', 'adapter', 'sensor', 'cable', 'computer', 'other'] },
+          mesh: {
+            type: 'object',
+            required: ['url'],
+            description:
+              "The part's real 3D model (STL, OBJ, GLB/GLTF, 3MF): the project's files, the maker's CAD download, or a model of the exact board. Drawn instead of a generated box, so use one whenever it exists.",
+            properties: { url: { type: 'string' }, units: { type: 'string', enum: ['mm', 'cm', 'm', 'in'], description: 'Default mm.' } },
+          },
+          pose: {
+            type: 'object',
+            required: ['at'],
+            description:
+              'Where it sits in the finished build, like in CAD: mm, z up, x to the right, y away from the viewer; turn = degrees about x, then y, then z. Parts without a pose lie on the table beside the build (fine for boards that are only wired).',
+            properties: { at: vec3, turn: vec3 },
+          },
+          color: { type: 'string', description: 'Its real colour as hex, e.g. "#1f5fbf" for a blue board, or the filament colour.' },
+          finish: { type: 'string', enum: ['matte', 'gloss', 'metal'] },
           size: {
             type: 'object',
-            required: ['w', 'h'],
-            description: 'The board in mm, lying flat with its labels readable: w across, h front to back, t thickness (default 1.6).',
+            description: 'Without a mesh: the board in mm, lying flat with its labels readable: w across, h front to back, t thickness (default 1.6).',
             properties: { w: { type: 'number' }, h: { type: 'number' }, t: { type: 'number' } },
           },
-          color: { type: 'string', description: 'The board colour as hex, e.g. "#1f5fbf".' },
           pitch: { type: 'number', description: 'Spacing between neighbouring pins in mm (default 2.54).' },
           pins: {
             type: 'array',
-            description: 'Only pins a person connects to, in the order they physically sit along each edge.',
+            description: 'Without a mesh: only pins a person connects to, in the order they physically sit along each edge.',
             items: {
               type: 'object',
               required: ['id', 'side'],
@@ -70,7 +104,7 @@ const manualSchema = {
           },
           features: {
             type: 'array',
-            description: 'USB plugs, sockets, the main chip, antennas: drawn so the board is recognisable.',
+            description: 'Without a mesh: USB plugs, sockets, the main chip, antennas, so the board is recognisable.',
             items: {
               type: 'object',
               required: ['kind', 'side'],
@@ -84,41 +118,90 @@ const manualSchema = {
           },
           sources: {
             type: 'array',
-            description: 'The pages the size and pinout came from (datasheet, maker or seller page).',
+            description: 'The pages the shape and pinout came from (datasheet, maker or seller page, the project repo).',
             items: { type: 'object', required: ['url'], properties: { url: { type: 'string' }, title: { type: 'string' } } },
           },
           estimated: { type: 'boolean', description: 'true if the size or pins are a guess; it is drawn with a dashed outline.' },
-          note: { type: 'string', description: 'Anything to know about this part, e.g. "labels are on the back".' },
+          note: { type: 'string', description: 'Anything to know about this part, e.g. "labels are on the back", "print in PLA, 20% infill".' },
         },
       },
     },
     steps: {
       type: 'array',
-      description: 'One physical action per step (plug one cable, or the wires between one pair of parts), in a safe order.',
+      description:
+        "One physical action per step, in a safe order, like a LEGO manual: put one part in, fasten it, or make the wires between one pair of parts. Use the project's own assembly guide for the order where there is one.",
       items: {
         type: 'object',
         required: ['title', 'instruction'],
         properties: {
-          title: { type: 'string', description: 'A few words, e.g. "Power the LD2450".' },
-          instruction: { type: 'string', description: 'One or two plain sentences for someone who has never wired electronics. Say wire colours when known.' },
-          connections: {
+          title: { type: 'string', description: 'A few words, e.g. "Seat the shoulder servo".' },
+          instruction: { type: 'string', description: 'One or two plain sentences for a first-timer. Say which way round, which side, wire colours.' },
+          place: {
             type: 'array',
-            description: 'Wires made in this step, pin to pin.',
+            description: 'Parts that go in during this step; each slides into its pose from a direction, the way the hand moves it.',
             items: {
               type: 'object',
-              required: ['from', 'to'],
+              required: ['part'],
               properties: {
-                from: { type: 'object', required: ['part', 'pin'], properties: { part: { type: 'string' }, pin: { type: 'string' } } },
-                to: { type: 'object', required: ['part', 'pin'], properties: { part: { type: 'string' }, pin: { type: 'string' } } },
-                wire: { type: 'string', description: 'The real wire colour if known, e.g. "black".' },
+                part: { type: 'string' },
+                from: {
+                  description: 'Where it comes in from: above, below, front, back, left, right, or a direction [x, y, z]. Default above.',
+                  anyOf: [{ type: 'string', enum: ['above', 'below', 'front', 'back', 'left', 'right'] }, vec3],
+                },
+                distance: { type: 'number', description: 'How far it travels, mm (default: about its own size).' },
+              },
+            },
+          },
+          fasteners: {
+            type: 'array',
+            description: 'Screws, nuts and the like for this step, shown in a parts box with their sizes and counts.',
+            items: {
+              type: 'object',
+              required: ['size', 'count'],
+              properties: {
+                kind: { type: 'string', enum: ['screw', 'bolt', 'nut', 'washer', 'insert', 'standoff', 'zip tie', 'other'] },
+                size: { type: 'string', description: 'As sold, e.g. "M2x6", "M3x12 countersunk".' },
+                count: { type: 'integer' },
+                into: { type: 'string', description: 'The part they go into.' },
                 note: { type: 'string' },
               },
             },
           },
-          show: { type: 'array', items: { type: 'string' }, description: 'Part ids that appear from this step on (parts in connections appear anyway).' },
+          connections: {
+            type: 'array',
+            description: 'Wires or cables made in this step, end to end.',
+            items: {
+              type: 'object',
+              required: ['from', 'to'],
+              properties: {
+                from: end,
+                to: end,
+                wire: { type: 'string', description: 'The real wire colour if known, e.g. "black".' },
+                temporary: { type: 'boolean', description: 'true if it is unplugged again after this step (e.g. a cable only used to set up or test one part).' },
+                via: {
+                  type: 'array',
+                  description: 'How the cable is routed: points [x, y, z] in mm (like a pose) or part ids it runs past, in order.',
+                  items: { anyOf: [{ type: 'string' }, vec3] },
+                },
+                note: { type: 'string' },
+              },
+            },
+          },
+          show: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'Part ids that appear from this step on without sliding in. A part with a pose that appears (shown, wired, set up) before the step that places it waits loose on the table in front of the build, then travels into place at its place step.',
+          },
           focus: { type: 'array', items: { type: 'string' }, description: 'Part ids, or "partid.pinid", to draw the eye to.' },
-          caution: { type: 'string', description: 'Anything that can damage a part: power, polarity, 5V vs 3.3V, pins to leave empty.' },
-          check: { type: 'string', description: 'What to verify before moving on. Before anything is powered for the first time: photograph the wiring with the check button on the page.' },
+          view: {
+            type: 'string',
+            enum: ['iso', 'iso-back', 'front', 'back', 'left', 'right', 'top', 'bottom'],
+            description: 'Turn the view for this step, e.g. "bottom" to show screws going in from underneath.',
+          },
+          times: { type: 'integer', description: 'Do this step this many times, e.g. 4 for one per finger.' },
+          caution: { type: 'string', description: 'Anything that can damage a part or hurt: power, polarity, 5V vs 3.3V, overtightening, a servo set to the wrong id.' },
+          check: { type: 'string', description: 'What to verify before moving on. Before anything is powered for the first time: photograph it with the check button on the page.' },
         },
       },
     },
@@ -129,15 +212,26 @@ const tools = [
   {
     name: 'create_manual',
     title: 'Make an assembly manual',
-    description: `Make a step-by-step 3D assembly manual for hardware the user is physically putting together, and get its link. The drawing shows every part with its real pins and draws each step's wires in.
+    description: `Make a step-by-step 3D assembly manual for hardware the user is physically putting together, and get its link: electronics, wiring, 3D-printed parts, robots, enclosures, anything. Each step slides its parts into place, lists its screws, and draws its wires in, pin to pin.
 
-Before calling, look every part up on the web (datasheet, maker or seller page) for its board size in mm and its pinout with labels exactly as printed. Never fill in sizes or pin orders from memory: put the pages in sources, or set estimated: true where you had to guess. What the user confirmed on their real hardware (photos, labels, tests) beats datasheets.
+Make it look like what the user really has, so there's less to translate and fewer mistakes:
+- If the project publishes design files (a URDF, STL/STEP-derived meshes, a GitHub repo of printed parts), read them with read_cad and pass them in cad: every piece then has its real shape and its real place in the build.
+- Give other parts a mesh too when the maker publishes one; otherwise look them up on the web (datasheet, maker or seller page) for size in mm and pinout as printed. Never fill in sizes or pin orders from memory: put the pages in sources, or set estimated: true where you had to guess.
+- Follow the project's own assembly guide for the order, screw sizes and cautions where there is one. What the user confirmed on their real hardware (photos, labels, tests) beats documentation.
 
 Verified parts, drawn from measurements of real boards whenever the model matches: ${verifiedParts}.
 
 Returns the link (give it to the user), the manual's id, and an edit token for update_manual. On the page the user can photograph a part or their wiring when they're stuck: with a key connected there the page checks it itself, otherwise you do (get_photo, answer_photo).`,
     inputSchema: manualSchema,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  },
+  {
+    name: 'read_cad',
+    title: 'Read a design file',
+    description:
+      "Read a build's design file and list its physical pieces with ids, 3D files and positions: a URDF (what robots publish; every printed part and motor comes out placed where it sits) or a single STL/OBJ/GLB/3MF. Use a raw link (raw.githubusercontent.com, not a github.com page). Then pass the same url in create_manual's cad list and refer to the pieces by these ids in steps.",
+    inputSchema: { type: 'object', required: ['url'], properties: { url: { type: 'string' } } },
+    annotations: { readOnlyHint: true, openWorldHint: true },
   },
   {
     name: 'update_manual',
@@ -221,8 +315,42 @@ const link = (origin: string, id: string) => `${origin}/m/${id}`;
 
 const warned = (warnings: string[]) => (warnings.length ? `\n\nWorth fixing (update_manual):\n${warnings.map((w) => `- ${w}`).join('\n')}` : '');
 
-export async function createManual(draft: Draft, origin: string): Promise<Result> {
-  const { guide, errors, warnings } = check(draft);
+/** the design files a manual names, read into parts the agent's own entries refine */
+async function expand(draft: Draft & { cad?: unknown }): Promise<{ draft: Draft; errors: string[] }> {
+  const sources = Array.isArray(draft.cad) ? draft.cad.slice(0, 10) : [];
+  if (!sources.length) return { draft, errors: [] };
+  const errors: string[] = [];
+  const imported: CadPart[] = [];
+  for (const [i, source] of sources.entries()) {
+    const entry = (typeof source === 'string' ? { url: source } : source) as { url?: string; only?: string[] };
+    try {
+      const { parts } = await readCad(String(entry.url ?? ''));
+      imported.push(...parts.filter((p) => !entry.only?.length || entry.only.includes(p.id)));
+    } catch (error) {
+      errors.push(`cad[${i}]: ${(error as Error).message}`);
+    }
+  }
+  const given = (Array.isArray(draft.parts) ? draft.parts : []) as Record<string, unknown>[];
+  // the agent's entry for an imported piece only has to say what it adds: a name, a note, sources
+  const parts = given.map((p) => {
+    const base = imported.find((c) => c.id === p.id);
+    if (!base) return p;
+    const { link: _, ...rest } = base;
+    return { ...rest, ...Object.fromEntries(Object.entries(p).filter(([, v]) => v !== undefined && v !== null)) };
+  });
+  for (const c of imported) {
+    if (given.some((p) => p.id === c.id)) continue;
+    const { link: _, ...rest } = c;
+    parts.push(rest);
+  }
+  return { draft: { ...draft, parts }, errors };
+}
+
+export async function createManual(raw: Draft, origin: string): Promise<Result> {
+  const expanded = await expand(raw);
+  const checked = check(expanded.draft);
+  const { guide, warnings } = checked;
+  const errors = [...expanded.errors, ...checked.errors];
   if (errors.length) return { ok: false, status: 422, text: `The manual wasn't made. Fix these and try again:\n${errors.map((e) => `- ${e}`).join('\n')}` };
   const { manual, token } = await manuals.create(guide);
   const url = link(origin, manual.id);
@@ -238,11 +366,14 @@ export async function createManual(draft: Draft, origin: string): Promise<Result
   };
 }
 
-export async function updateManual(id: string, token: string, draft: Draft): Promise<Result> {
+export async function updateManual(id: string, token: string, raw: Draft): Promise<Result> {
   const manual = await manuals.get(id);
   if (!manual) return { ok: false, status: 404, text: `No manual "${id}".` };
   if (!token || !manuals.mayEdit(manual, token)) return { ok: false, status: 403, text: 'That edit token is not the one this manual was made with.' };
-  const { guide, errors, warnings } = check(draft);
+  const expanded = await expand(raw);
+  const checked = check(expanded.draft);
+  const { guide, warnings } = checked;
+  const errors = [...expanded.errors, ...checked.errors];
   if (errors.length) return { ok: false, status: 422, text: `The manual wasn't changed. Fix these and try again:\n${errors.map((e) => `- ${e}`).join('\n')}` };
   keepPhotos(guide, manual.guide);
   manual.guide = guide;
@@ -275,6 +406,23 @@ export async function describeManual(id: string, origin: string): Promise<Result
   const waiting = checks.filter((c) => c.needs_your_answer).map((c) => c.photo_id);
   const tip = waiting.length ? `Waiting for your answer: photo ${waiting.join(', ')}. Look with get_photo, answer with answer_photo.\n\n` : '';
   return { ok: true, data, text: tip + JSON.stringify(data, null, 1) };
+}
+
+export async function inspectCad(url: string): Promise<Result> {
+  try {
+    const { parts, summary } = await readCad(url);
+    const listed = parts.map((p) => ({ id: p.id, name: p.name, file: p.mesh?.url, link: p.link, color: p.color, at_mm: p.pose?.at }));
+    return {
+      ok: true,
+      data: { summary, parts: listed },
+      text:
+        `${summary}\n\nTo use them, put {"url": "${url}"} in the manual's cad list: every piece below comes in with its real 3d file and its place in the build. ` +
+        `Refer to them by id in steps. Add an entry with the same id in parts only to give it a better name, a note or sources; use cad[].only to keep just some.\n\n` +
+        JSON.stringify(listed, null, 1),
+    };
+  } catch (error) {
+    return { ok: false, status: 400, text: (error as Error).message };
+  }
 }
 
 export async function photoOf(id: string, photoId?: string) {
@@ -364,6 +512,7 @@ async function call(name: string, args: Record<string, unknown>, origin: string)
   if (name === 'create_manual') return createManual(args, origin);
   if (name === 'update_manual') return updateManual(String(args.id ?? ''), String(args.edit_token ?? ''), args);
   if (name === 'get_manual') return describeManual(String(args.id ?? ''), origin);
+  if (name === 'read_cad') return inspectCad(String(args.url ?? ''));
   if (name === 'answer_photo') return answerPhoto(String(args.id ?? ''), args);
   return { ok: false, status: 404, text: `No tool "${name}".` };
 }

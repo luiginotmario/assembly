@@ -691,6 +691,64 @@ body.sheet-open {
   font: 700 21px/1.2 var(--font-display);
   letter-spacing: -0.02em;
 }
+.times {
+  justify-self: start;
+  width: fit-content;
+  margin: 0 20px 10px !important;
+  padding: 3px 10px !important;
+  border-radius: 980px;
+  background: var(--color-label);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+}
+.times[hidden] {
+  display: none;
+}
+.needs {
+  display: grid;
+  gap: 6px;
+  margin: 0 20px 12px !important;
+  padding: 10px 12px !important;
+  border-radius: 16px;
+  background: rgb(0 0 0 / 0.035);
+  list-style: none;
+  font-size: 14px;
+}
+.needs li {
+  display: grid;
+  grid-template-columns: 30px 1fr auto;
+  align-items: center;
+  gap: 6px;
+}
+.needs b {
+  font: 600 13px var(--font-mono);
+}
+.needs em {
+  color: var(--color-secondary);
+  font-size: 12px;
+  font-style: normal;
+}
+.needs svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: var(--color-secondary);
+  stroke-width: 1.4;
+  stroke-linejoin: round;
+}
+.loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  color: var(--color-secondary);
+  font-size: 14px;
+  pointer-events: none;
+}
+.loading[hidden] {
+  display: none;
+}
 .instruction {
   font-size: 15px;
   line-height: 1.45;
@@ -773,6 +831,29 @@ body.sheet-open {
 }
 .title-block > .tb-label {
   padding-top: 4px;
+}
+.parts summary {
+  display: flex;
+  gap: 6px;
+  padding: 4px 20px 12px;
+  list-style: none;
+  cursor: pointer;
+}
+.parts summary::-webkit-details-marker {
+  display: none;
+}
+.parts summary::after {
+  content: '›';
+  transition: transform 200ms var(--ease-glide);
+}
+.parts[open] summary::after {
+  transform: rotate(90deg);
+}
+.parts summary span {
+  color: var(--color-tertiary);
+}
+.parts .bom {
+  padding: 0 20px 18px;
 }
 .bom {
   display: grid;
@@ -948,4 +1029,8 @@ body.sheet-open {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
+}
+
+.title-block > .parts {
+  padding: 0;
 }

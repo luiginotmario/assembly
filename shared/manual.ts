@@ -1,5 +1,5 @@
 import { library } from './library.js';
-import type { Connection, End, Feature, Guide, Part, Pin, Side, Source, Step } from './types.js';
+import type { Approach, Connection, End, Fastener, Feature, Guide, Mesh, Part, Pin, Placement, Pose, Side, Source, Step, Vec3, View } from './types.js';
 
 // What an agent sends to make a manual, checked and filled in. Optional fields get sensible
 // defaults; anything that would draw wrong (a wire to a pin that doesn't exist, a part with
@@ -19,7 +19,14 @@ const SIDES: Side[] = ['top', 'bottom', 'left', 'right'];
 const KINDS: Part['kind'][] = ['board', 'adapter', 'sensor', 'cable', 'computer', 'other'];
 const STYLES: Pin['style'][] = ['header', 'socket', 'pad'];
 const FEATURES: Feature['kind'][] = ['usb-a', 'usb-c', 'socket', 'chip', 'antenna'];
-const ID = /^[a-z0-9][a-z0-9_-]{0,31}$/;
+const APPROACHES: Approach[] = ['above', 'below', 'front', 'back', 'left', 'right'];
+const VIEWS: View[] = ['iso', 'iso-back', 'front', 'back', 'left', 'right', 'top', 'bottom'];
+const FASTENERS: Fastener['kind'][] = ['screw', 'bolt', 'nut', 'washer', 'insert', 'standoff', 'zip tie', 'other'];
+const UNITS: Mesh['units'][] = ['mm', 'cm', 'm', 'in'];
+const FINISHES = ['matte', 'gloss', 'metal'] as const;
+/** 3d files the drawing can load */
+export const MESH = /\.(stl|obj|glb|gltf|3mf)(\?.*)?$/i;
+const ID = /^[a-z0-9][a-z0-9_-]{0,47}$/;
 
 /** pins can be referred to by id or by their printed label, in any case or punctuation */
 const key = (value: string) => value.toLowerCase().replace(/[^a-z0-9+]/g, '');
@@ -75,6 +82,14 @@ export function check(draft: Draft): Checked {
     errors.push(`${path} must be an object`);
     return {};
   };
+  const vec = (value: unknown, path: string, fallback?: Vec3): Vec3 => {
+    if ((value === undefined || value === null) && fallback) return fallback;
+    if (Array.isArray(value) && value.length === 3 && value.every((v) => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) < 100000)) {
+      return value as Vec3;
+    }
+    errors.push(`${path} must be three numbers [x, y, z]`);
+    return fallback ?? [0, 0, 0];
+  };
   const oneOf = <T extends string>(value: unknown, path: string, options: T[], fallback?: T): T => {
     if ((value === undefined || value === null || value === '') && fallback) return fallback;
     if (typeof value === 'string' && options.includes(value as T)) return value as T;
@@ -84,7 +99,7 @@ export function check(draft: Draft): Checked {
 
   // ---------- parts ----------
 
-  const rawParts = list(draft.parts, 'parts', 40);
+  const rawParts = list(draft.parts, 'parts', 200);
   if (!rawParts.length) errors.push('parts: a manual needs at least one part');
   const parts: Part[] = [];
   // the pins as they were sent, for parts replaced by their verified geometry
@@ -92,7 +107,7 @@ export function check(draft: Draft): Checked {
   for (const [i, raw] of rawParts.entries()) {
     const at = `parts[${i}]`;
     const p = object(raw, at);
-    const id = text(p.id, `${at}.id`, 32, true);
+    const id = text(p.id, `${at}.id`, 48, true);
     if (id && !ID.test(id)) errors.push(`${at}.id "${id}" must be short, lowercase letters, digits, - or _ (e.g. "usb1")`);
     if (parts.some((q) => q.id === id)) errors.push(`${at}.id "${id}" is used twice; two identical boards need different ids`);
     const name = text(p.name, `${at}.name`, 80, true);
@@ -139,18 +154,37 @@ export function check(draft: Draft): Checked {
       return url ? [{ url, title: text(s.title, `${at}.sources[${j}].title`, 200) || url }] : [];
     });
 
+    let mesh: Mesh | undefined;
+    if (p.mesh !== undefined && p.mesh !== null) {
+      const m = object(p.mesh, `${at}.mesh`);
+      const url = text(m.url, `${at}.mesh.url`, 1000, true);
+      if (url && !/^https?:\/\//.test(url)) errors.push(`${at}.mesh.url must be a public http(s) link to the file`);
+      else if (url && !MESH.test(url)) errors.push(`${at}.mesh.url must be an .stl, .obj, .glb, .gltf or .3mf file`);
+      mesh = { url, units: oneOf(m.units, `${at}.mesh.units`, UNITS, 'mm') };
+    }
+    let pose: Pose | undefined;
+    if (p.pose !== undefined && p.pose !== null) {
+      const q = object(p.pose, `${at}.pose`);
+      pose = { at: vec(q.at, `${at}.pose.at`), turn: vec(q.turn, `${at}.pose.turn`, [0, 0, 0]) };
+    }
+
     const estimated = p.estimated === true;
     const part: Part = {
       id,
       name,
       model: text(p.model, `${at}.model`, 80) || name,
       kind: oneOf(p.kind, `${at}.kind`, KINDS, 'board'),
+      // a 3d model knows its own size
       size: {
-        w: number(size.w, `${at}.size.w`),
-        h: number(size.h, `${at}.size.h`),
-        t: number(size.t, `${at}.size.t`, 1.6),
+        w: number(size.w, `${at}.size.w`, mesh ? 0 : undefined),
+        h: number(size.h, `${at}.size.h`, mesh ? 0 : undefined),
+        t: number(size.t, `${at}.size.t`, mesh ? 0 : 1.6),
       },
-      color: text(p.color, `${at}.color`, 9) || '#2a6f3a',
+      // without a colour: a green board, an aluminium computer, a dark cable, grey plastic
+      color:
+        text(p.color, `${at}.color`, 9) ||
+        ({ computer: '#c8cacd', cable: '#2a2a2a', other: '#b9b9bd' } as Record<string, string>)[String(p.kind)] ||
+        (mesh ? '#c9c9c9' : '#2a6f3a'),
       pitch: number(p.pitch, `${at}.pitch`, 2.54),
       pins,
       features,
@@ -158,19 +192,23 @@ export function check(draft: Draft): Checked {
       source: sources[0]?.url ?? (estimated ? 'estimate' : 'given'),
       note: text(p.note, `${at}.note`, 400),
       sources,
+      ...(mesh ? { mesh } : {}),
+      ...(pose ? { pose } : {}),
+      ...(p.finish ? { finish: oneOf(p.finish, `${at}.finish`, [...FINISHES]) } : {}),
     };
     if (!/^#[0-9a-fA-F]{3,8}$/.test(part.color)) errors.push(`${at}.color must be a hex colour like "#1f5fbf"`);
     for (const dim of ['w', 'h', 't'] as const) {
-      if (!(part.size[dim] > 0 && part.size[dim] < 1000)) errors.push(`${at}.size.${dim} must be between 0 and 1000 mm`);
+      const ok = part.size[dim] > 0 || (mesh && part.size[dim] === 0);
+      if (!ok || part.size[dim] >= 5000) errors.push(`${at}.size.${dim} must be between 0 and 5000 mm${mesh ? '' : ' (or give the part a mesh)'}`);
     }
     if (!(part.pitch > 0 && part.pitch < 50)) errors.push(`${at}.pitch must be between 0 and 50 mm`);
 
     // a board we've measured ourselves: our geometry wins, references to its pins still work
-    const known = verified(part.model);
+    const known = mesh ? undefined : verified(part.model);
     if (known) {
       Object.assign(part, structuredClone({ ...known.part, id: part.id, name: part.name }), { sources: [] });
       sent.set(part.id, pins);
-    } else if (!estimated && !sources.length) {
+    } else if (!estimated && !sources.length && !mesh) {
       warnings.push(`${at} (${id}): no sources. Look its datasheet or listing up and pass the pages in sources, or set estimated: true if the size and pins are a guess.`);
     }
     parts.push(part);
@@ -197,21 +235,29 @@ export function check(draft: Draft): Checked {
   const end = (value: unknown, path: string): End => {
     const e = object(value, path);
     const partId = text(e.part, `${path}.part`, 32, true);
-    const pin = text(e.pin, `${path}.pin`, 24, true);
+    const pin = text(e.pin, `${path}.pin`, 24);
     const part = byId.get(partId);
     if (!part) {
       if (partId) errors.push(`${path}.part: no part "${partId}" (parts: ${[...byId.keys()].join(', ')})`);
       return { part: partId, pin };
     }
+    // a cable to a part with no pins (a motor, a battery) plugs into the part itself
+    if (!pin && !part.pins.length) return { part: partId, pin: '' };
     const found = pinOf(part, pin);
     if (!found) {
-      if (pin) errors.push(`${path}.pin: no pin "${pin}" on ${partId} (its pins: ${part.pins.map((p) => p.id).join(', ') || 'none; add them to the part'})`);
+      errors.push(`${path}.pin: no pin "${pin}" on ${partId} (its pins: ${part.pins.map((p) => p.id).join(', ') || 'none; add them to the part, or leave pin empty'})`);
       return { part: partId, pin };
     }
     return { part: partId, pin: found.id };
   };
 
-  const rawSteps = list(draft.steps, 'steps', 80);
+  const partRef = (value: unknown, path: string) => {
+    const id = text(value, path, 48, true);
+    if (id && !byId.has(id)) errors.push(`${path}: no part "${id}"`);
+    return id;
+  };
+
+  const rawSteps = list(draft.steps, 'steps', 120);
   if (!rawSteps.length) errors.push('steps: a manual needs at least one step');
   const steps: Step[] = rawSteps.map((raw, i) => {
     const at = `steps[${i}]`;
@@ -223,14 +269,31 @@ export function check(draft: Draft): Checked {
         to: end(c.to, `${at}.connections[${j}].to`),
         wire: text(c.wire, `${at}.connections[${j}].wire`, 30),
         note: text(c.note, `${at}.connections[${j}].note`, 200),
+        ...(c.temporary === true ? { temporary: true } : {}),
+        ...(c.via ? { via: list(c.via, `${at}.connections[${j}].via`, 16).map((v, k) => (typeof v === 'string' ? partRef(v, `${at}.connections[${j}].via[${k}]`) : vec(v, `${at}.connections[${j}].via[${k}]`))) } : {}),
       };
     });
-    const show = list(s.show, `${at}.show`, 40).map((v, j) => {
-      const id = text(v, `${at}.show[${j}]`, 32, true);
-      if (id && !byId.has(id)) errors.push(`${at}.show[${j}]: no part "${id}"`);
-      return id;
+    const place: Placement[] = list(s.place, `${at}.place`, 40).map((rawPlace, j) => {
+      const q = object(rawPlace, `${at}.place[${j}]`);
+      const from = typeof q.from === 'string' || q.from === undefined ? oneOf(q.from, `${at}.place[${j}].from`, APPROACHES, 'above') : vec(q.from, `${at}.place[${j}].from`);
+      return { part: partRef(q.part, `${at}.place[${j}].part`), from, distance: Math.max(0, number(q.distance, `${at}.place[${j}].distance`, 0)) };
     });
-    const focus = list(s.focus, `${at}.focus`, 20).map((v, j) => {
+    const fasteners: Fastener[] = list(s.fasteners, `${at}.fasteners`, 20).map((rawFastener, j) => {
+      const f = object(rawFastener, `${at}.fasteners[${j}]`);
+      const count = Math.round(number(f.count, `${at}.fasteners[${j}].count`, 1));
+      if (count < 1 || count > 999) errors.push(`${at}.fasteners[${j}].count must be 1 to 999`);
+      return {
+        kind: oneOf(f.kind, `${at}.fasteners[${j}].kind`, FASTENERS, 'screw'),
+        size: text(f.size, `${at}.fasteners[${j}].size`, 40, true),
+        count,
+        into: f.into ? partRef(f.into, `${at}.fasteners[${j}].into`) : '',
+        note: text(f.note, `${at}.fasteners[${j}].note`, 200),
+      };
+    });
+    const times = Math.round(number(s.times, `${at}.times`, 1));
+    if (times < 1 || times > 100) errors.push(`${at}.times must be 1 to 100`);
+    const show = list(s.show, `${at}.show`, 60).map((v, j) => partRef(v, `${at}.show[${j}]`));
+    const focus = list(s.focus, `${at}.focus`, 40).map((v, j) => {
       const target = text(v, `${at}.focus[${j}]`, 60, true);
       const [partId, ...rest] = target.split('.');
       const part = byId.get(partId);
@@ -251,6 +314,10 @@ export function check(draft: Draft): Checked {
       focus,
       caution: text(s.caution, `${at}.caution`, 600),
       check: text(s.check, `${at}.check`, 600),
+      place,
+      fasteners,
+      view: s.view ? oneOf(s.view, `${at}.view`, VIEWS) : null,
+      times,
     };
   });
 

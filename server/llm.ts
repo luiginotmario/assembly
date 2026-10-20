@@ -73,7 +73,7 @@ async function viaChat(key: ApiKey, call: Call, blocks: Block[]) {
     headers: {
       authorization: `Bearer ${key.key}`,
       'content-type': 'application/json',
-      ...(key.provider === 'openrouter' ? { 'x-title': 'Assembly', 'http-referer': 'https://assemblyguide.vercel.app' } : {}),
+      ...(key.provider === 'openrouter' ? { 'x-title': 'Assembly', 'http-referer': 'https://assembly-guide.dev' } : {}),
     },
     body: JSON.stringify({
       model: MODELS[key.provider],

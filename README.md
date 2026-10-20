@@ -1,6 +1,6 @@
 # hi, this is assembly
 
-putting hardware together for the first time is confusing when all you get is text. "connect TX to RXD" means nothing if you've never held a jumper wire. assembly lets your coding agent draw you a 3D assembly manual of the build, one step at a time, and checks your wiring from a photo when you're stuck.
+putting hardware together for the first time is confusing when all you get is text. "connect TX to RXD" means nothing if you've never held a jumper wire, and "attach the wrist to the forearm" means nothing until you see which way round. assembly lets your coding agent make you a 3D assembly manual of whatever you're building, one step at a time, like the one in a LEGO box: wiring, boards, 3D-printed parts, motors, robots, enclosures. and it checks your work from a photo when you're stuck.
 
 - free and open source (MIT)
 - no accounts, no sign-up. a manual is a link.
@@ -11,13 +11,13 @@ putting hardware together for the first time is confusing when all you get is te
 1. **add it to your agent.** assembly is an MCP server. in claude code:
 
    ```
-   claude mcp add --transport http assembly https://assemblyguide.vercel.app/mcp
+   claude mcp add --transport http assembly https://assembly-guide.dev/mcp
    ```
 
-   any other agent: add `https://assemblyguide.vercel.app/mcp` as an MCP server (streamable http).
+   any other agent: add `https://assembly-guide.dev/mcp` as an MCP server (streamable http).
 
-2. **ask for a manual.** "make me an assembly manual for this build." the agent looks every part up (board size, pinout as printed), writes the steps and gets back a link. parts we've measured on real boards (LD2450, LD2410C, CP2102) are drawn from those measurements.
-3. **follow it.** every part is a 3D drawing with its real pins. each step draws its wires in, pin to pin, in their real colours, with the pins to look at circled in red and cautions (power, polarity, pins to leave empty) in red too. open it on your phone with the qr code; both stay on the same step.
+2. **ask for a manual.** "make me an assembly manual for this build." the agent uses the project's own design files where they exist (a robot's URDF, the STL/OBJ/GLB/3MF of each printed part or board), looks everything else up (board size, pinout as printed), writes the steps and gets back a link. parts we've measured on real boards (LD2450, LD2410C, CP2102) are drawn from those measurements.
+3. **follow it.** the drawing is your build: real shapes, real colours, every part where it really goes. each step slides its parts in from the way your hand brings them, lists its screws by size and count, turns the view when the work is on the other side, says "do this 4 times" when it repeats, and draws its wires in pin to pin in their real colours, with the pins to look at circled in red. open it on your phone with the qr code; both stay on the same step.
 4. **stuck? take a photo.** "is this the part you mean?" two ways, your choice:
    - **no key:** the photo is saved. tell your agent "check my photo": it looks at it, answers you, and the page shows its answer with the part and pins it means highlighted.
    - **with a key** (sign in with openrouter, or paste an openrouter, anthropic or openai key): the page answers by itself, right away. it zooms into the tiny printed labels, says which part it is and highlights exactly which pins and wires the step means. boards that show up whole get straightened and laid onto their 3D part, so the drawing looks like your hardware. the key is stored encrypted with that manual and only used for its photos.
@@ -28,6 +28,7 @@ questions go to your agent, which can also fix the manual (`update_manual`).
 
 | tool | what it does |
 | --- | --- |
+| `read_cad` | reads a design file (a URDF, or one 3D file) and lists its pieces with their 3D files and positions |
 | `create_manual` | checks the manual (every wire must land on a real pin), stores it, returns the link and an edit token |
 | `update_manual` | replaces the guide; open pages update by themselves, photos of your boards stay |
 | `get_manual` | the guide, the step you're on, and every photo (and which wait for an answer) |
@@ -50,14 +51,15 @@ on vercel it needs an upstash redis database (manuals) and a blob store (photos)
 ## how it's built
 
 ```
-shared/types.ts       the manual format: parts, pins, connections, steps
+shared/types.ts       the manual format: parts (3D models or boards with pins), poses, steps, fasteners, wires
 shared/manual.ts      checking what an agent sends, with errors that say what to fix
 shared/library.ts     parts measured on real boards
 server/mcp.ts         the MCP server and its tools
+server/cad.ts         design files -> parts with real 3D models in their places
 server/photos.ts      photo -> zoom in -> read labels -> check against the step -> lay boards onto the drawing
 server/keys.ts        sealing keys, openrouter sign-in
 web/src/manual.ts     the page: the drawing, the step, the photo check
-web/src/drawing/      the 3D drawing (three.js): parts from their specs, wires, steps, callouts
+web/src/drawing/      the 3D drawing (three.js): real models or generated boards, slide-ins, views, wires, callouts
 ```
 
 no framework on the page: plain typescript and vite. the landing page is a few KB; the 3D drawing loads only when you open a manual.
