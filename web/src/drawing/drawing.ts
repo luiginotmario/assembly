@@ -611,7 +611,11 @@ export class Drawing {
     const box = new THREE.Box3();
     const focused = [...whole, ...pins.keys()].filter((id) => this.visible.has(id));
     const intoBuild = focused.some((id) => this.models.get(id)?.part.pose);
-    const built = [...this.visible].filter((id) => this.models.get(id)?.part.pose);
+    // the build is what's actually built in: parts still waiting on the table don't count
+    const built = [...this.visible].filter((id) => {
+      const model = this.models.get(id);
+      return model?.part.pose && model.target.equals(model.rest);
+    });
     const framed = focused.length ? [...focused, ...(intoBuild ? built : [])] : [...this.visible];
     for (const id of new Set(framed)) {
       const model = this.models.get(id);

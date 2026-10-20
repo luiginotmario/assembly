@@ -326,7 +326,8 @@ export function check(draft: Draft): Checked {
 
   // nothing your hands do should go undrawn: a step that says it plugs, screws or solders
   // something must show it, and every part should turn up in some step
-  const ACTION = /\b(plug|insert|push|connect|attach|screw|bolt|solder|mount|slide|seat|fit|clip|press|wire|route|fasten|tighten)\w*/i;
+  // whole words only, so a "screwdriver" in the list of tools isn't an action
+  const ACTION = /\b(plug|insert|push|connect|attach|screw|bolt|solder|mount|slide|seat|fit|clip|press|wire|route|fasten|tighten)(?:s|es|d|ed|ged|ging|ing|ted|ting)?\b/i;
   steps.forEach((step, i) => {
     const drawn = step.connections.length + (step.place?.length ?? 0) + (step.fasteners?.length ?? 0);
     const verb = step.instruction.match(ACTION)?.[0];
