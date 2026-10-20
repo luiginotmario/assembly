@@ -84,11 +84,11 @@ function keyFor(manual: manuals.Stored): ApiKey | null {
   return key && manual.key ? { provider: manual.key.provider, key } : serverKey();
 }
 
+// a photo: checked right away if the manual has a key, otherwise saved for the user's agent
 app.post('/api/manuals/:id/photos', async (c) => {
   const manual = await manuals.get(c.req.param('id'));
   if (!manual) return c.json({ error: 'no such manual' }, 404);
   const key = keyFor(manual);
-  if (!key) return c.json({ error: 'Connect a key to check photos.', needsKey: true }, 409);
   if (manual.photos.filter((p) => p.status === 'reading').length >= 3) return c.json({ error: 'A few photos are still being read. Give it a moment.' }, 429);
   if (manual.photos.length >= 200) return c.json({ error: 'This manual has had a lot of photos checked already.' }, 429);
 
@@ -101,7 +101,8 @@ app.post('/api/manuals/:id/photos', async (c) => {
     file: '',
     createdAt: Date.now(),
     step: Number.isInteger(asked) && asked >= 0 && asked < manual.guide.steps.length ? asked : manual.step,
-    status: 'reading',
+    status: key ? 'reading' : 'waiting',
+    answeredBy: null,
     crops: [],
     analysis: null,
     captured: [],
@@ -116,8 +117,21 @@ app.post('/api/manuals/:id/photos', async (c) => {
   }
   manual.photos.push(photo);
   manuals.changed(manual);
-  background(() => readPhoto(manual, photo, key));
+  if (key) background(() => readPhoto(manual, photo, key));
+  else await manuals.flush();
   return c.json({ ok: true, photo: photo.id }, 202);
+});
+
+/** a saved photo, checked here after all (a key was just connected) */
+app.post('/api/manuals/:id/photos/:photo/check', async (c) => {
+  const manual = await manuals.get(c.req.param('id'));
+  const photo = manual?.photos.find((p) => p.id === c.req.param('photo'));
+  if (!manual || !photo) return c.json({ error: 'no such photo' }, 404);
+  const key = keyFor(manual);
+  if (!key) return c.json({ error: 'Connect a key first.' }, 409);
+  if (photo.status === 'reading') return c.json({ ok: true }, 202);
+  background(() => readPhoto(manual, photo, key));
+  return c.json({ ok: true }, 202);
 });
 
 // ---------- keys ----------

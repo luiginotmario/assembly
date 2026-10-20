@@ -483,6 +483,9 @@ input:focus {
 .verdict[data-state='unsure'] .verdict-title::before {
   background: #ff9f0a;
 }
+.verdict[data-state='waiting'] .verdict-title::before {
+  background: var(--color-blue);
+}
 .verdict[data-state='reading'] .verdict-title {
   color: var(--color-secondary);
 }
@@ -522,12 +525,14 @@ input:focus {
 }
 .verdict-foot {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 4px 12px;
   min-height: 24px;
   font-size: 13px;
 }
 .verdict-foot .link-button:not(.quiet) {
+  white-space: nowrap;
   font-size: 14px;
   font-weight: 500;
 }

@@ -2,13 +2,9 @@ import type { KeyInfo, Manual } from '../../shared/types';
 
 export type Info = { ready: boolean; lan: string[] };
 
-/** the server said this manual has no key to check photos with yet */
-export class NeedsKey extends Error {}
-
 async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(url, init);
-  const body = (await response.json().catch(() => ({}))) as { error?: string; needsKey?: boolean };
-  if (response.status === 409 && body.needsKey) throw new NeedsKey(body.error);
+  const body = (await response.json().catch(() => ({}))) as { error?: string };
   if (!response.ok) throw new Error(body.error ?? `${response.status}`);
   return body as T;
 }
@@ -43,6 +39,8 @@ export const api = {
     form.append('step', String(step));
     await request(`/api/manuals/${id}/photos`, { method: 'POST', body: form });
   },
+  /** a saved photo, checked by the page now that there's a key */
+  check: (id: string, photo: string) => post(`/api/manuals/${id}/photos/${photo}/check`),
   savedKey: () => request<{ saved: KeyInfo | null }>('/api/saved-key'),
   useSavedKey: (id: string) => post<{ key: KeyInfo }>(`/api/manuals/${id}/key`, { saved: true }),
   pasteKey: (id: string, key: string) => post<{ key: KeyInfo }>(`/api/manuals/${id}/key`, { key }),

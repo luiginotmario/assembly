@@ -40,6 +40,10 @@ type Box = { x0: number; y0: number; x1: number; y1: number };
 type FirstLook = { quality: 'good' | 'retake'; retake: string; seen: string; zoom: { box: Box; why: string }[] };
 
 export async function readPhoto(manual: Stored, photo: Photo, key: ApiKey) {
+  photo.status = 'reading';
+  photo.crops = [];
+  photo.error = '';
+  changed(manual);
   try {
     const full = await getFile(photo.file);
     const overview = await sharp(full).resize({ width: 1600, height: 1600, fit: 'inside' }).jpeg({ quality: 85 }).toBuffer();
@@ -63,6 +67,7 @@ export async function readPhoto(manual: Stored, photo: Photo, key: ApiKey) {
     ];
     const close = await json<PhotoAnalysis>(key, { name: 'close_look', system: CLOSE_LOOK, user: content, schema: schemas.closeLook });
     photo.analysis = close;
+    photo.answeredBy = 'page';
     if (close.quality === 'retake') {
       photo.status = 'retake';
     } else {

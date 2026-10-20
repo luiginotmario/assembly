@@ -114,7 +114,10 @@ export type Photo = {
   createdAt: number;
   /** the step they were on when they took it */
   step: number;
-  status: 'reading' | 'done' | 'retake' | 'error';
+  /** waiting: no key on the manual, so it's saved for the user's agent to look at and answer */
+  status: 'waiting' | 'reading' | 'done' | 'retake' | 'error';
+  /** who answered it: the page's model (with the manual's key) or the user's agent */
+  answeredBy: 'page' | 'agent' | null;
   /** zoomed-in crops the labels were read from */
   crops: string[];
   analysis: PhotoAnalysis | null;

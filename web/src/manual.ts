@@ -1,5 +1,5 @@
 import type { Guide, Manual, Part, Photo, Visual } from '../../shared/types';
-import { api, NeedsKey } from './api';
+import { api } from './api';
 import { Drawing } from './drawing/drawing';
 
 // A manual: the drawing filling the page, the step you're on floating over its corner, and a
@@ -38,8 +38,8 @@ export async function openManual(root: HTMLElement, id: string) {
   /** which check the card shows; null follows the newest */
   let viewing: string | null = null;
   let dismissed = '';
-  /** a photo taken before a key was connected, sent once there is one */
-  let held: File | null = null;
+  /** a saved photo to check on the page as soon as a key is connected */
+  let pending: Photo | null = null;
   const card = $('[data-verdict]');
 
   // ---------- steps ----------
@@ -88,7 +88,12 @@ export async function openManual(root: HTMLElement, id: string) {
     document.title = `${next.guide.title} · Assembly`;
     renderStep();
     renderCheck();
-    if (held && next.key) void send(held);
+    if (pending && next.key) {
+      const photo = pending;
+      pending = null;
+      closeSheet();
+      void api.check(id, photo.id).catch((e) => alert(e.message));
+    }
   };
 
   if (example) {
@@ -103,14 +108,11 @@ export async function openManual(root: HTMLElement, id: string) {
   const sheetError = $('[data-connect-error]');
 
   const send = async (file: File) => {
-    held = null;
-    closeSheet();
     viewing = null;
     dismissed = '';
     try {
       await api.photo(id, file, step);
     } catch (error) {
-      if (error instanceof NeedsKey) return openSheet(file);
       alert((error as Error).message);
     }
   };
@@ -119,14 +121,14 @@ export async function openManual(root: HTMLElement, id: string) {
   camera.addEventListener('change', () => {
     const file = camera.files?.[0];
     camera.value = '';
-    // the server says if it needs a key (on your own computer it may have one of its own)
+    // with a key the page checks it; without one it's saved for the user's agent
     if (file) void send(file);
   });
 
-  async function openSheet(file: File) {
-    held = file;
+  async function openSheet(photo: Photo) {
+    pending = photo;
     sheetError.textContent = '';
-    $<HTMLImageElement>('[data-held]').src = URL.createObjectURL(file);
+    $<HTMLImageElement>('[data-held]').src = photo.file;
     const saved = await api.savedKey().then((r) => r.saved).catch(() => null);
     const useSaved = $<HTMLButtonElement>('[data-saved]');
     useSaved.hidden = !saved;
@@ -142,7 +144,7 @@ export async function openManual(root: HTMLElement, id: string) {
   const failed = (error: unknown) => (sheetError.textContent = (error as Error).message);
 
   $('[data-cancel]').addEventListener('click', () => {
-    held = null;
+    pending = null;
     closeSheet();
   });
   sheet.addEventListener('click', (event) => event.target === sheet && $<HTMLButtonElement>('[data-cancel]').click());
@@ -188,6 +190,10 @@ export async function openManual(root: HTMLElement, id: string) {
     if (target.dataset.act === 'close') dismissed = current()?.id ?? '';
     if (target.dataset.act === 'older') viewing = photos[Math.max(0, at - 1)]?.id ?? null;
     if (target.dataset.act === 'newer') viewing = at + 1 >= photos.length - 1 ? null : photos[at + 1].id;
+    if (target.dataset.act === 'connect') {
+      const photo = current();
+      if (photo) void openSheet(photo);
+    }
     if (target.dataset.act === 'show') {
       const visual = current()?.analysis?.visual;
       if (visual) show(visual);
@@ -242,6 +248,7 @@ export async function openManual(root: HTMLElement, id: string) {
     const a = photo.analysis;
     const state = photo.status === 'done' ? (a?.verdict ?? 'none') : photo.status;
     const title = {
+      waiting: 'Saved for your agent',
       reading: 'Reading the labels…',
       ok: 'Looks right',
       wrong: 'Not quite',
@@ -250,19 +257,29 @@ export async function openManual(root: HTMLElement, id: string) {
       retake: 'Can you retake it?',
       error: 'Couldn’t check that one',
     }[state];
-    const body = photo.status === 'retake' ? a?.retake : photo.status === 'error' ? photo.error : photo.status === 'done' ? a?.explanation : '';
+    const body =
+      photo.status === 'waiting'
+        ? 'Tell your agent “check my photo”. Its answer shows up here, with the part and pins it means highlighted.'
+        : photo.status === 'retake'
+          ? a?.retake
+          : photo.status === 'error'
+            ? photo.error
+            : photo.status === 'done'
+              ? a?.explanation
+              : '';
     const visual = a?.visual;
     const drawable = visual && (visual.focus.length || visual.connections.length || visual.step !== null);
     card.dataset.state = state;
     card.innerHTML = `
       <a class="verdict-photo" href="${esc(photo.file)}" target="_blank" rel="noreferrer"><img src="${esc(photo.file)}" alt="Your photo" /></a>
       <div class="verdict-body">
-        <p class="verdict-title">${title}<small>Step ${photo.step + 1}</small></p>
+        <p class="verdict-title">${title}<small>${photo.answeredBy === 'agent' ? 'your agent · ' : ''}step ${photo.step + 1}</small></p>
         ${body ? `<p class="verdict-text">${esc(body)}</p>` : ''}
         ${photo.crops.length ? `<div class="crops">${photo.crops.map((c) => `<img src="${esc(c)}" alt="A close-up it read" />`).join('')}</div>` : ''}
         ${photo.captured.length ? `<p class="verdict-note">Your ${esc(list(photo.captured))} ${photo.captured.length > 1 ? 'are' : 'is'} now on the drawing, as photographed.</p>` : ''}
         <div class="verdict-foot">
           ${drawable && photo.status === 'done' ? '<button class="link-button" data-act="show">Show me</button>' : ''}
+          ${photo.status === 'waiting' && !manual.key ? '<button class="link-button" data-act="connect">Or check it here with a key</button>' : ''}
           ${photos.length > 1 ? `<span class="pager"><button class="icon" data-act="older" aria-label="Older check" ${at <= 0 ? 'disabled' : ''}>‹</button>${at + 1} / ${photos.length}<button class="icon" data-act="newer" aria-label="Newer check" ${at >= photos.length - 1 ? 'disabled' : ''}>›</button></span>` : ''}
           ${manual.key ? `<button class="link-button quiet" data-act="forget" title="Photos are checked with this key">${PROVIDERS[manual.key.provider]} ·· ${esc(manual.key.last4)}</button>` : ''}
         </div>
@@ -379,8 +396,8 @@ function layout(example: boolean) {
     <div class="backdrop" data-connect hidden>
       <div class="connect" role="dialog" aria-modal="true" aria-labelledby="connect-title">
         <img class="connect-photo" data-held alt="The photo you took" />
-        <h2 id="connect-title">Connect a model to read your photo</h2>
-        <p>A vision model zooms into the labels on your boards and checks them against the step. It runs on your own key, which stays encrypted on the server and is only used for this manual’s photos.</p>
+        <h2 id="connect-title">Check photos right on this page</h2>
+        <p>With a key, this page reads your photos by itself: it zooms into the labels, says which part it is, and highlights exactly which pins and wires the step means. Your key stays encrypted on the server and is only used for this manual’s photos.</p>
         <button class="button primary wide" data-saved hidden></button>
         <button class="button primary wide" data-openrouter>Continue with OpenRouter</button>
         <form class="paste" data-paste>
