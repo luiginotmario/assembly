@@ -1142,3 +1142,31 @@ body.sheet-open {
 .title-block > .parts {
   padding: 0;
 }
+
+/* the name of the part under the pointer */
+.hover-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  display: grid;
+  padding: 6px 11px 7px;
+  border-radius: 12px;
+  background: var(--color-ink);
+  color: #fff;
+  font-size: 13px;
+  line-height: 1.25;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.18);
+}
+.hover-label[hidden] {
+  display: none;
+}
+.hover-label b {
+  font-weight: 600;
+}
+.hover-label small {
+  color: rgb(255 255 255 / 0.62);
+  font: 11px var(--font-mono);
+}

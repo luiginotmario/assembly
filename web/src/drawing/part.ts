@@ -34,6 +34,7 @@ export class PartModel {
   private readonly pinMarks = new Map<string, THREE.Mesh>();
 
   constructor(readonly part: Part) {
+    this.group.userData.partId = part.id;
     this.group.add(this.body);
     if (part.mesh) this.model();
     else this.board();

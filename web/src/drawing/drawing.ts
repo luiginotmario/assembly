@@ -71,6 +71,10 @@ export class Drawing {
     this.overlay = document.createElement('div');
     this.overlay.className = 'callouts';
     host.append(this.overlay);
+    this.label.className = 'hover-label';
+    this.label.hidden = true;
+    host.append(this.label);
+    this.watchPointer();
 
     // isometric: looking down at 35° from the front-left corner
     this.camera.position.copy(this.dir).multiplyScalar(DISTANCE);
@@ -92,6 +96,66 @@ export class Drawing {
     new ResizeObserver(() => this.resize()).observe(host);
     this.resize();
     this.renderer.setAnimationLoop(() => this.frame());
+  }
+
+  // ---------- naming the part under the pointer ----------
+
+  private readonly label = document.createElement('div');
+  private readonly raycaster = new THREE.Raycaster();
+  private pointer: { x: number; y: number } | null = null;
+  private dragging = false;
+  private hovered = '';
+  private tapTimer = 0;
+
+  /** hovering a part (or tapping it on a phone) shows its name beside the pointer */
+  private watchPointer() {
+    const canvas = this.renderer.domElement;
+    let down: { x: number; y: number } | null = null;
+    canvas.addEventListener('pointermove', (e) => {
+      if (e.pointerType === 'touch') return;
+      this.pointer = { x: e.offsetX, y: e.offsetY };
+      this.dragging = e.buttons > 0;
+    });
+    canvas.addEventListener('pointerleave', () => (this.pointer = null));
+    canvas.addEventListener('pointerdown', (e) => (down = { x: e.offsetX, y: e.offsetY }));
+    canvas.addEventListener('pointerup', (e) => {
+      // a tap, not a drag to turn the view: name what's under the finger for a moment
+      if (e.pointerType !== 'touch' || !down || Math.hypot(e.offsetX - down.x, e.offsetY - down.y) > 8) return;
+      this.pointer = { x: e.offsetX, y: e.offsetY };
+      clearTimeout(this.tapTimer);
+      this.tapTimer = window.setTimeout(() => (this.pointer = null), 2200);
+    });
+  }
+
+  /** once a frame: which part is under the pointer, and its label next to it */
+  private hover() {
+    const at = this.pointer;
+    let id = '';
+    if (at && !this.dragging && !this.flight) {
+      const w = this.host.clientWidth;
+      const h = this.host.clientHeight;
+      this.raycaster.setFromCamera(new THREE.Vector2((at.x / w) * 2 - 1, -(at.y / h) * 2 + 1), this.camera);
+      const shown = [...this.visible].map((p) => this.models.get(p)?.group).filter((g) => !!g);
+      for (const hit of this.raycaster.intersectObjects(shown, true)) {
+        if (!(hit.object as THREE.Mesh).isMesh) continue;
+        let node: THREE.Object3D | null = hit.object;
+        while (node && !node.userData.partId) node = node.parent;
+        if (node) {
+          id = node.userData.partId;
+          break;
+        }
+      }
+    }
+    if (id !== this.hovered) {
+      this.hovered = id;
+      const part = this.guide?.parts.find((p) => p.id === id);
+      this.label.hidden = !part;
+      if (part) {
+        const model = part.model && part.model !== part.name ? `<small>${escapeHtml(part.model)}</small>` : '';
+        this.label.innerHTML = `<b>${escapeHtml(part.name)}</b>${model}`;
+      }
+    }
+    if (id && at) this.label.style.transform = `translate(${Math.round(at.x + 14)}px, ${Math.round(at.y + 16)}px)`;
   }
 
   /** the page as it looks right now, on paper, for turning it over */
@@ -527,6 +591,7 @@ export class Drawing {
 
     this.renderer.render(this.scene, this.camera);
     this.drawCallouts();
+    this.hover();
   }
 
   private drawCallouts() {
@@ -627,6 +692,9 @@ function separate(labels: Callout[]) {
     if (!moved) break;
   }
 }
+
+const escapeHtml = (value: string) =>
+  value.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
 /** the middle of a part's top, where it is right now */
 function top(model: PartModel) {
