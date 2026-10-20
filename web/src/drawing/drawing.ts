@@ -73,7 +73,11 @@ export class Drawing {
     host.append(this.overlay);
     this.label.className = 'hover-label';
     this.label.hidden = true;
-    host.append(this.label);
+    this.leader.classList.add('hover-leader');
+    this.leader.setAttribute('aria-hidden', 'true');
+    this.leader.innerHTML = '<line /><circle r="3.5" />';
+    this.leader.toggleAttribute('hidden', true);
+    host.append(this.leader, this.label);
     this.watchPointer();
 
     // isometric: looking down at 35° from the front-left corner
@@ -101,6 +105,7 @@ export class Drawing {
   // ---------- naming the part under the pointer ----------
 
   private readonly label = document.createElement('div');
+  private readonly leader = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   private readonly raycaster = new THREE.Raycaster();
   private pointer: { x: number; y: number } | null = null;
   private dragging = false;
@@ -127,10 +132,12 @@ export class Drawing {
     });
   }
 
-  /** once a frame: which part is under the pointer, and its label next to it */
+  /** once a frame: which part is under the pointer, named in a label set off the part with a
+   * leader line to the exact spot, so the label never covers what it names */
   private hover() {
     const at = this.pointer;
     let id = '';
+    let spot: THREE.Vector3 | null = null;
     if (at && !this.dragging && !this.flight) {
       const w = this.host.clientWidth;
       const h = this.host.clientHeight;
@@ -142,6 +149,7 @@ export class Drawing {
         while (node && !node.userData.partId) node = node.parent;
         if (node) {
           id = node.userData.partId;
+          spot = hit.point;
           break;
         }
       }
@@ -149,13 +157,46 @@ export class Drawing {
     if (id !== this.hovered) {
       this.hovered = id;
       const part = this.guide?.parts.find((p) => p.id === id);
-      this.label.hidden = !part;
       if (part) {
         const model = part.model && part.model !== part.name ? `<small>${escapeHtml(part.model)}</small>` : '';
         this.label.innerHTML = `<b>${escapeHtml(part.name)}</b>${model}`;
       }
     }
-    if (id && at) this.label.style.transform = `translate(${Math.round(at.x + 14)}px, ${Math.round(at.y + 16)}px)`;
+    const model = id ? this.models.get(id) : null;
+    this.label.hidden = !model || !spot;
+    this.leader.toggleAttribute('hidden', this.label.hidden);
+    if (!model || !spot) return;
+
+    // the part's outline on screen; the label goes above it, or below when there's no room
+    const project = (v: THREE.Vector3) => {
+      const p = v.clone().project(this.camera);
+      return { x: (p.x * 0.5 + 0.5) * this.host.clientWidth, y: (-p.y * 0.5 + 0.5) * this.host.clientHeight };
+    };
+    const box = new THREE.Box3().setFromObject(model.group);
+    let top = Infinity;
+    let bottom = -Infinity;
+    for (let i = 0; i < 8; i++) {
+      const { y } = project(new THREE.Vector3(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z));
+      top = Math.min(top, y);
+      bottom = Math.max(bottom, y);
+    }
+    const target = project(spot);
+    const width = this.label.offsetWidth;
+    const height = this.label.offsetHeight;
+    const gap = 26;
+    const above = top - gap - height > 8;
+    const x = Math.min(Math.max(8, target.x - width / 2), this.host.clientWidth - width - 8);
+    const y = above ? top - gap - height : Math.min(bottom + gap, this.host.clientHeight - height - 8);
+    this.label.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+    const line = this.leader.querySelector('line')!;
+    const dot = this.leader.querySelector('circle')!;
+    const from = { x: Math.min(Math.max(target.x, x + 12), x + width - 12), y: above ? y + height : y };
+    line.setAttribute('x1', from.x.toFixed(1));
+    line.setAttribute('y1', from.y.toFixed(1));
+    line.setAttribute('x2', target.x.toFixed(1));
+    line.setAttribute('y2', target.y.toFixed(1));
+    dot.setAttribute('cx', target.x.toFixed(1));
+    dot.setAttribute('cy', target.y.toFixed(1));
   }
 
   /** the page as it looks right now, on paper, for turning it over */

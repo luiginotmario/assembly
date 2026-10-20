@@ -349,34 +349,42 @@ input:focus {
   line-height: 1.4;
 }
 
-/* the page, like a LEGO booklet's: a big step number, and a box with what this step uses */
+/* the page, like a LEGO booklet's: a big step number, and a box with what this step uses. The
+   number's capitals are exactly as tall as the box, so the two read as one block */
 .page-step {
+  --row: 80px;
   display: flex;
-  align-items: flex-start;
-  gap: 18px;
+  align-items: center;
+  gap: 16px;
   margin-top: 22px;
 }
 .step-number {
   min-width: 1ch;
-  font: 700 76px/0.8 var(--font-display);
+  /* SF Pro's figures are 0.705 em tall */
+  font: 700 calc(var(--row) / 0.705) / 0.705 var(--font-display);
   letter-spacing: -0.04em;
   font-variant-numeric: tabular-nums;
 }
+@supports (text-box: trim-both cap alphabetic) {
+  .step-number {
+    line-height: 1;
+    text-box: trim-both cap alphabetic;
+  }
+}
 .callout {
   display: flex;
-  align-items: flex-end;
+  align-items: stretch;
   gap: 10px;
+  height: var(--row);
 }
 .callout[hidden] {
   display: none;
 }
 .parts-box {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px 14px;
-  max-width: 340px;
+  gap: 14px;
   margin: 0;
-  padding: 10px 14px 8px;
+  padding: 6px 14px;
   border-radius: 16px;
   background: #eef0f3;
   box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.05);
@@ -384,38 +392,44 @@ input:focus {
 }
 .parts-box li {
   display: grid;
+  grid-template-rows: 1fr auto;
   justify-items: center;
-  gap: 2px;
+  align-items: center;
 }
 .parts-box img,
 .parts-box svg {
-  width: 56px;
-  height: 56px;
+  width: 48px;
+  height: 48px;
 }
 .parts-box img:not([src]) {
   visibility: hidden;
 }
 .parts-box svg {
-  padding: 12px;
+  padding: 10px;
   fill: none;
   stroke: var(--color-label);
   stroke-width: 1.3;
   stroke-linejoin: round;
 }
 .parts-box b {
-  font: 600 13px var(--font-sans);
+  font: 600 13px/1.2 var(--font-sans);
 }
 .parts-box small {
-  margin-top: -2px;
   color: var(--color-secondary);
-  font: 11px var(--font-mono);
+  font: 10px/1 var(--font-mono);
+}
+.parts-box .fastener {
+  grid-template-rows: 1fr auto auto;
 }
 .repeat {
-  padding: 6px 12px;
-  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  min-width: var(--row);
+  padding: 0 14px;
+  border-radius: 16px;
   background: var(--color-ink);
   color: #fff;
-  font: 700 20px/1 var(--font-display);
+  font: 700 28px/1 var(--font-display);
 }
 
 /* turning a page: the old one swings away around its edge, the next step already beneath */
@@ -1144,11 +1158,29 @@ body.sheet-open {
 }
 
 /* the name of the part under the pointer */
-.hover-label {
+.hover-label,
+.hover-leader {
   position: absolute;
   top: 0;
   left: 0;
   z-index: 2;
+  pointer-events: none;
+}
+.hover-leader {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.hover-leader line {
+  stroke: var(--color-ink);
+  stroke-width: 1.25;
+}
+.hover-leader circle {
+  fill: var(--color-ink);
+  stroke: #fff;
+  stroke-width: 1.5;
+}
+.hover-label {
   display: grid;
   padding: 6px 11px 7px;
   border-radius: 12px;
@@ -1160,7 +1192,8 @@ body.sheet-open {
   pointer-events: none;
   box-shadow: 0 6px 18px rgb(0 0 0 / 0.18);
 }
-.hover-label[hidden] {
+.hover-label[hidden],
+.hover-leader[hidden] {
   display: none;
 }
 .hover-label b {
