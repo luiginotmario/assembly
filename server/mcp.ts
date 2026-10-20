@@ -508,11 +508,12 @@ const reply = (id: Rpc['id'], result: unknown) => ({ jsonrpc: '2.0', id, result 
 const failure = (id: Rpc['id'], code: number, message: string) => ({ jsonrpc: '2.0', id: id ?? null, error: { code, message } });
 
 async function call(name: string, args: Record<string, unknown>, origin: string): Promise<Result> {
+  // reading a design file stores nothing, so it works without storage
+  if (name === 'read_cad') return inspectCad(String(args.url ?? ''));
   if (!manuals.ready) return { ok: false, status: 503, text: manuals.NOT_READY };
   if (name === 'create_manual') return createManual(args, origin);
   if (name === 'update_manual') return updateManual(String(args.id ?? ''), String(args.edit_token ?? ''), args);
   if (name === 'get_manual') return describeManual(String(args.id ?? ''), origin);
-  if (name === 'read_cad') return inspectCad(String(args.url ?? ''));
   if (name === 'answer_photo') return answerPhoto(String(args.id ?? ''), args);
   return { ok: false, status: 404, text: `No tool "${name}".` };
 }
