@@ -200,7 +200,7 @@ input:focus {
   box-sizing: content-box;
   max-width: 42rem;
   margin: 0 auto;
-  padding: 16svh 24px 72px;
+  padding: 56px 24px 72px;
 }
 .landing .eyebrow {
   color: var(--color-secondary);
