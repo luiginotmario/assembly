@@ -1,10 +1,11 @@
 # hi, this is assembly
 
-putting hardware together for the first time is confusing when all you get is text. "connect TX to RXD" means nothing if you've never held a jumper wire, and "attach the wrist to the forearm" means nothing until you see which way round. assembly lets your coding agent make you a 3D assembly manual of whatever you're building, one step at a time, like the one in a LEGO box: wiring, boards, 3D-printed parts, motors, robots, enclosures. and it checks your work from a photo when you're stuck.
+putting hardware together for the first time is confusing when all you get is text. "connect TX to RXD" means nothing if you've never held a jumper wire, and "attach the wrist to the forearm" means nothing until you see which way round. assembly lets your coding agent make you a 3D assembly manual of whatever you're building, one step at a time, like the booklet in the box: wiring, boards, 3D-printed parts, motors, robots, enclosures. and it checks your work from a photo when you're stuck.
 
 - free and open source (MIT)
 - no accounts, no sign-up. a manual is a link.
 - no keys needed: your agent does the thinking (it already knows your parts). a key is optional, for photo checks right on the page
+- light: no framework on the page. the landing page is a few KB, and the 3D drawing only loads when you open a manual.
 
 ## how it works
 
@@ -37,16 +38,14 @@ questions go to your agent, which can also fix the manual (`update_manual`).
 
 no MCP? the same over plain http: `POST /api/manuals` with the manual as JSON, `PUT /api/manuals/:id` with `authorization: Bearer <edit token>`, `GET /api/manuals/:id/checks`.
 
-## run it yourself
+## what's stored
 
-- install [node 22](https://nodejs.org) and [pnpm](https://pnpm.io)
-- `pnpm install && pnpm dev`, then open http://localhost:5180
-- add it to your agent with `claude mcp add --transport http assembly http://localhost:5180/mcp`
-- optional: put `OPENROUTER_API_KEY` in `.env` and every local manual checks photos with it, no connecting
+nothing about you. no accounts, no analytics, and no cookies except the key one below (plus a 15-minute one while you sign in with openrouter).
 
-to run it without dev tools: `pnpm build && pnpm start`, then http://localhost:8787.
-
-on vercel it needs an upstash redis database (manuals) and a blob store (photos) linked to the project, and a `KEY_SECRET` env var (any long random string) to seal keys with.
+- **a manual** (what your agent sent) and the step you're on, for 90 days after it last changed. anyone with its link can open it, so treat the link like the manual itself. its id is random and long enough not to be guessed.
+- **photos you take on a manual**, with the close-ups that were read, in the same place for as long as the manual.
+- **a key, only if you connect one.** it's sealed (aes-256-gcm) with that one manual and used only for its photo checks; it's never sent back to a browser. your browser keeps a sealed copy in a cookie it can't read, so your next manual can reuse it with one tap. disconnecting deletes both.
+- **design files** your agent points at (urdf, stl, …) are read when it asks, never stored; the page loads 3D models straight from where they're published.
 
 ## how it's built
 
@@ -62,11 +61,21 @@ web/src/manual.ts     the page: the drawing, the step, the photo check
 web/src/drawing/      the 3D drawing (three.js): real models or generated boards, slide-ins, views, wires, callouts
 ```
 
-no framework on the page: plain typescript and vite. the landing page is a few KB; the 3D drawing loads only when you open a manual.
+the page is plain typescript and three.js, built with vite; the server is a small hono app (node locally, a vercel function hosted).
 
 ## if you wanna make an addition + pr, or just wanna remix it for yourself, go for it
 
+- clone the repo
+- install [node 22](https://nodejs.org) and [pnpm](https://pnpm.io)
+- `pnpm install && pnpm dev`, then open http://localhost:5180 — done, you're up and running.
+- add your local copy to your agent with `claude mcp add --transport http assembly http://localhost:5180/mcp`
+- optional: put `OPENROUTER_API_KEY` in `.env` and every local manual checks photos with it, no connecting
+
 the easiest thing to add is a part: put its size, pins and features in `shared/library.ts` and it gets drawn exactly from then on.
+
+to host it on vercel: link an upstash redis database (manuals) and a blob store (photos) to the project, and set `KEY_SECRET` to any long random string (keys are sealed with it).
+
+make changes on a pr and i'll ship them :)
 
 ## license
 

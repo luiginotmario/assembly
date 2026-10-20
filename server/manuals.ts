@@ -210,6 +210,25 @@ export async function flush() {
 
 export type { Stored };
 
+// ---------- how often one address can do things ----------
+
+const counts = new Map<string, { n: number; until: number }>();
+
+/** true while `who` has done `what` fewer than `max` times in the last `seconds` */
+export async function allow(what: string, who: string, max: number, seconds: number) {
+  const name = `rate:${what}:${who}`;
+  if (cloud) {
+    const [n] = (await redis([['INCR', name]])) as [number];
+    if (n === 1) await redis([['EXPIRE', name, seconds]]);
+    return n <= max;
+  }
+  const now = Date.now();
+  const entry = counts.get(name);
+  if (!entry || entry.until < now) counts.set(name, { n: 1, until: now + seconds * 1000 });
+  else entry.n += 1;
+  return counts.get(name)!.n <= max;
+}
+
 // ---------- photos and other files ----------
 
 /** stores an image and returns the url it can be read back from */

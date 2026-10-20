@@ -346,7 +346,8 @@ async function expand(draft: Draft & { cad?: unknown }): Promise<{ draft: Draft;
   return { draft: { ...draft, parts }, errors };
 }
 
-export async function createManual(raw: Draft, origin: string): Promise<Result> {
+export async function createManual(raw: Draft, origin: string, who = 'local'): Promise<Result> {
+  if (!(await manuals.allow('create', who, 40, 3600))) return { ok: false, status: 429, text: 'Too many manuals from here in the last hour. Try again later.' };
   const expanded = await expand(raw);
   const checked = check(expanded.draft);
   const { guide, warnings } = checked;
@@ -507,18 +508,18 @@ type Rpc = { jsonrpc?: string; id?: string | number | null; method?: string; par
 const reply = (id: Rpc['id'], result: unknown) => ({ jsonrpc: '2.0', id, result });
 const failure = (id: Rpc['id'], code: number, message: string) => ({ jsonrpc: '2.0', id: id ?? null, error: { code, message } });
 
-async function call(name: string, args: Record<string, unknown>, origin: string): Promise<Result> {
+async function call(name: string, args: Record<string, unknown>, origin: string, who: string): Promise<Result> {
   // reading a design file stores nothing, so it works without storage
   if (name === 'read_cad') return inspectCad(String(args.url ?? ''));
   if (!manuals.ready) return { ok: false, status: 503, text: manuals.NOT_READY };
-  if (name === 'create_manual') return createManual(args, origin);
+  if (name === 'create_manual') return createManual(args, origin, who);
   if (name === 'update_manual') return updateManual(String(args.id ?? ''), String(args.edit_token ?? ''), args);
   if (name === 'get_manual') return describeManual(String(args.id ?? ''), origin);
   if (name === 'answer_photo') return answerPhoto(String(args.id ?? ''), args);
   return { ok: false, status: 404, text: `No tool "${name}".` };
 }
 
-async function handle(message: Rpc, origin: string) {
+async function handle(message: Rpc, origin: string, who: string) {
   // notifications (no id) get no reply
   if (message.id === undefined || message.id === null) return null;
   const { id, method, params = {} } = message;
@@ -553,7 +554,7 @@ async function handle(message: Rpc, origin: string) {
             ...(photo.ok ? {} : { isError: true }),
           });
         }
-        const result = await call(name, args, origin);
+        const result = await call(name, args, origin, who);
         return reply(id, {
           content: [{ type: 'text', text: result.text }],
           ...(result.ok ? { structuredContent: result.data } : { isError: true }),
@@ -578,7 +579,8 @@ export async function mcp(c: Context) {
   } catch {
     return c.json(failure(null, -32700, 'Parse error'), 400);
   }
-  const replies = (await Promise.all((Array.isArray(body) ? body : [body]).map((m) => handle(m, originOf(c))))).filter(Boolean);
+  const who = c.req.header('x-real-ip') ?? c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ?? 'local';
+  const replies = (await Promise.all((Array.isArray(body) ? body : [body]).slice(0, 20).map((m) => handle(m, originOf(c), who)))).filter(Boolean);
   if (!replies.length) return c.body(null, 202);
   return c.json(Array.isArray(body) ? replies : replies[0]);
 }

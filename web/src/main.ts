@@ -14,8 +14,8 @@ if (match) {
   root.innerHTML = `
     <main class="landing">
       <p class="eyebrow">Assembly</p>
-      <h1>Wire it up, one drawn step at a time.</h1>
-      <p class="lede">Your coding agent already knows your parts and how they connect. With Assembly it draws you a 3D manual of the build: every wire, every pin, every caution, step by step. Stuck on one? Take a photo and it checks it.</p>
+      <h1>Build it, one drawn step at a time.</h1>
+      <p class="lede">Your coding agent already knows your parts and how they fit together. With Assembly it makes you a 3D manual of whatever you're building, like the one in the box: every part, screw and wire, step by step, looking like what's on your desk. Stuck on one? Take a photo and it checks it.</p>
 
       <ol class="how">
         <li>
@@ -29,7 +29,7 @@ if (match) {
         </li>
         <li>
           <h2>Follow it</h2>
-          <p>On your computer or your phone. If a part or a wire is confusing, photograph it: the labels get read and checked against the step.</p>
+          <p>On your computer or your phone. If a part or a wire is confusing, photograph it and your agent (or the page itself, with a key) shows you which piece it is and where it goes.</p>
         </li>
       </ol>
 

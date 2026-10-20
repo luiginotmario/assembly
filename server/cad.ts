@@ -1,3 +1,5 @@
+import { lookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
 import * as THREE from 'three';
 import { MESH } from '../shared/manual.js';
 import type { Part, Vec3 } from '../shared/types.js';
@@ -9,16 +11,40 @@ import type { Part, Vec3 } from '../shared/types.js';
 
 const MAX = 4_000_000;
 
-/** fetches a public file, refusing anything that isn't plain http(s) to a public host */
+/** an address on the open internet, not this machine or a private network */
+function publicAddress(ip: string) {
+  if (isIP(ip) === 4) {
+    const [a, b] = ip.split('.').map(Number);
+    return !(a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b < 128) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b < 32) || (a === 192 && b === 168) || a >= 224);
+  }
+  const v6 = ip.toLowerCase();
+  if (v6.startsWith('::ffff:')) return publicAddress(v6.slice(7));
+  return !(v6 === '::' || v6 === '::1' || v6.startsWith('fc') || v6.startsWith('fd') || v6.startsWith('fe80'));
+}
+
+/** fetches a public file over http(s), checking every hop of a redirect points at the open internet
+ * (on your own computer, local addresses are fine) */
 async function download(url: string) {
-  const parsed = new URL(url);
-  if (!/^https?:$/.test(parsed.protocol)) throw new Error(`${url}: only http(s) links work`);
-  if (process.env.VERCEL && /^(localhost|127\.|10\.|192\.168\.|169\.254\.|\[?::1)/.test(parsed.hostname)) throw new Error(`${url}: not a public address`);
-  const response = await fetch(url, { signal: AbortSignal.timeout(20_000), redirect: 'follow' });
-  if (!response.ok) throw new Error(`${url}: ${response.status}`);
-  const text = await response.text();
-  if (text.length > MAX) throw new Error(`${url}: too big to read`);
-  return text;
+  let at = new URL(url);
+  for (let hop = 0; hop < 4; hop++) {
+    if (!/^https?:$/.test(at.protocol)) throw new Error(`${url}: only http(s) links work`);
+    if (process.env.VERCEL) {
+      const host = at.hostname.replace(/^\[|\]$/g, '');
+      const addresses = isIP(host) ? [{ address: host }] : await lookup(host, { all: true }).catch(() => []);
+      if (!addresses.length || !addresses.every((a) => publicAddress(a.address))) throw new Error(`${url}: not a public address`);
+    }
+    const response = await fetch(at, { signal: AbortSignal.timeout(20_000), redirect: 'manual' });
+    if (response.status >= 300 && response.status < 400 && response.headers.get('location')) {
+      at = new URL(response.headers.get('location')!, at);
+      continue;
+    }
+    if (!response.ok) throw new Error(`${url}: ${response.status}`);
+    if (Number(response.headers.get('content-length') ?? 0) > MAX) throw new Error(`${url}: too big to read`);
+    const text = await response.text();
+    if (text.length > MAX) throw new Error(`${url}: too big to read`);
+    return text;
+  }
+  throw new Error(`${url}: too many redirects`);
 }
 
 export type CadPart = Part & { link?: string };

@@ -24,6 +24,17 @@ function background(work: () => Promise<unknown>) {
   }
 }
 
+/** who's asking, as far as the platform can tell */
+const caller = (c: Context) => c.req.header('x-real-ip') ?? c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ?? 'local';
+
+// generous for a person or an agent, too little to fill the storage or burn someone's key
+app.use('*', async (c, next) => {
+  if (c.req.method !== 'POST' && c.req.method !== 'PUT' && c.req.method !== 'DELETE') return next();
+  if (!manuals.ready) return next();
+  if (!(await manuals.allow('write', caller(c), 120, 600))) return c.json({ error: 'Too many requests from here. Try again in a few minutes.' }, 429);
+  return next();
+});
+
 app.get('/api/info', (c) => c.json({ ready: manuals.ready, lan: manuals.cloud ? [] : lanAddresses() }));
 
 // ---------- for agents ----------
@@ -42,7 +53,7 @@ const bearer = (c: Context) => c.req.header('authorization')?.replace(/^Bearer\s
 app.post('/api/manuals', async (c) => {
   const draft = await c.req.json().catch(() => null);
   if (!draft) return c.json({ error: 'send the manual as JSON' }, 400);
-  const result = await createManual(draft, originOf(c));
+  const result = await createManual(draft, originOf(c), caller(c));
   return result.ok ? c.json(result.data, 201) : c.json({ error: result.text }, result.status as 422);
 });
 
@@ -95,6 +106,7 @@ app.post('/api/manuals/:id/photos', async (c) => {
   const body = await c.req.parseBody();
   const file = body.photo;
   if (!(file instanceof File)) return c.json({ error: 'no photo' }, 400);
+  if (file.size > 15_000_000) return c.json({ error: 'That photo is too big (15 MB at most).' }, 413);
   const asked = Number(body.step);
   const photo: Photo = {
     id: manuals.id(8),
