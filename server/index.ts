@@ -28,8 +28,8 @@ app.get('/files/:id/:name', async (c) => {
 });
 
 // the built site (pnpm build); during development vite serves it instead
-app.use('/assets/*', serveStatic({ root: './web/dist' }));
-app.use('/example/*', serveStatic({ root: './web/dist' }));
+// any built file (scripts, the example photos, the icons), then the page for every other path
+app.use('/*', serveStatic({ root: './web/dist' }));
 app.get('*', serveStatic({ root: './web/dist', path: 'index.html' }));
 
 serve({ fetch: app.fetch, port: PORT, hostname: '0.0.0.0' }, () => {
