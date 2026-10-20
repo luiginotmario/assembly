@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { Approach, Connection, Guide, Side, Vec3, View, Visual } from '../../../shared/types';
-import { easeGlide, easeInOut, lights, paper } from './look';
+import { easeGlide, easeInOut, lights, outlined, paper } from './look';
 import { loadAll } from './mesh';
 import { PartModel } from './part';
-import { Wire } from './wire';
+import { Wire, type Tip } from './wire';
 
 // The assembly drawing, like the pages of a LEGO manual: parts in their real shapes and
 // colours, built up step by step. Parts with a pose sit where they belong in the build (in its
@@ -48,7 +48,9 @@ export class Drawing {
   private readonly assembly = new THREE.Group();
   private guide: Guide | null = null;
   private models = new Map<string, PartModel>();
-  private wires: { wire: Wire; current: boolean }[] = [];
+  private wires: { wire: Wire; current: boolean; connection: Connection }[] = [];
+  /** multi-pin plug housings pushed onto sockets, seating along with their wires */
+  private housings: { mesh: THREE.Object3D; base: number; wires: Wire[] }[] = [];
   private arriving = new Map<string, Arrival>();
   private visible = new Set<string>();
   private flight: { from: THREE.Vector3; to: THREE.Vector3; fromZoom: number; toZoom: number; fromDir: THREE.Vector3; toDir: THREE.Vector3; start: number } | null = null;
@@ -310,7 +312,12 @@ export class Drawing {
 
     // parts that are only wired lie in a row beside it, each turned so its pins face the part
     // they connect to
-    const ordered = this.order(guide).filter((p) => !p.pose);
+    // computers go at the end of the row, after everything that plugs into them
+    const isComputer = (id: string) => guide.parts.find((p) => p.id === id)?.kind === 'computer';
+    const ordered = [
+      ...this.order(guide, isComputer).filter((p) => !p.pose && p.kind !== 'computer'),
+      ...guide.parts.filter((p) => !p.pose && p.kind === 'computer'),
+    ];
     const connections = guide.steps.flatMap((s) => s.connections);
     let x = built.isEmpty() ? 0 : (built.max.x - built.min.x) / 2 + GAP * 2;
     const start = x;
@@ -407,10 +414,20 @@ export class Drawing {
     this.visible = shown;
 
     this.clearWires();
-    // earlier wires stay, except the ones that were unplugged again
-    steps.slice(0, index).forEach((step) => step.connections.forEach((c) => !c.temporary && this.addWire(c, false, -1)));
+    // earlier wires stay, except the ones unplugged again, and a cable left loose that a later
+    // step plugs in at its other end (it continues there instead)
+    const later = (k: number) => steps.slice(k + 1, index + 1).flatMap((s) => s.connections);
+    const plugsIn = (loose: Connection, c: Connection) =>
+      [c.from, c.to].some((e) => e.part === loose.from.part && e.pin === loose.from.pin);
+    steps.slice(0, index).forEach((step, k) =>
+      step.connections.forEach((c) => {
+        if (c.temporary || (c.loose && later(k).some((d) => plugsIn(c, d)))) return;
+        this.addWire(c, false, -1);
+      }),
+    );
     const wireDelay = going ? 250 + (moves.size ? 700 : 0) : -1;
     current.connections.forEach((c, i) => this.addWire(c, true, wireDelay < 0 ? -1 : wireDelay + i * 160));
+    this.fitHousings();
 
     if (current.view) this.dir = VIEWS[current.view].clone().normalize();
     // the parts going in now are what to look at, along with whatever the step points to
@@ -433,13 +450,17 @@ export class Drawing {
     if (!this.guide) return;
     if (visual.step !== null && visual.step !== this.step) this.setStep(visual.step);
     for (const c of visual.connections) this.addWire(c, true, this.reduceMotion ? -1 : 200);
+    for (const { mesh } of this.housings) mesh.removeFromParent();
+    this.housings = [];
+    this.fitHousings();
     this.focus(visual.focus, visual.connections, !this.reduceMotion);
   }
 
-  private order(guide: Guide) {
+  private order(guide: Guide, skip: (id: string) => boolean = () => false) {
     // parts that connect sit next to each other: walk the connections from the first part
     const links = new Map<string, Set<string>>();
     for (const c of guide.steps.flatMap((s) => s.connections)) {
+      if (skip(c.from.part) || skip(c.to.part)) continue;
       links.set(c.from.part, (links.get(c.from.part) ?? new Set()).add(c.to.part));
       links.set(c.to.part, (links.get(c.to.part) ?? new Set()).add(c.from.part));
     }
@@ -484,15 +505,74 @@ export class Drawing {
 
   private addWire(c: Connection, current: boolean, delay: number) {
     const a = this.pinWorld(c.from);
-    const b = this.pinWorld(c.to);
+    const b = c.loose ? this.freeEnd(c.from, a) : this.pinWorld(c.to);
     if (!a || !b) return;
     const via = (c.via ?? []).map((p) => this.viaWorld(p)).filter((p) => !!p);
-    const wire = new Wire(a, b, c.wire, via);
+    const wire = new Wire(a, b, c.wire, via, [this.tip(c.from), c.loose ? 'free' : this.tip(c.to)]);
     if (delay < 0) wire.place();
     else wire.animate(delay);
     wire.emphasise(current);
-    this.wires.push({ wire, current });
+    this.wires.push({ wire, current, connection: c });
     this.scene.add(wire.group);
+  }
+
+  /** a socket takes a shared plug housing, a computer port a usb plug, the part itself nothing:
+   * only a header pin gets its own jumper plug */
+  private tip(end: { part: string; pin: string }): Tip {
+    const model = this.models.get(end.part);
+    const pin = model?.part.pins.find((p) => p.id === end.pin);
+    if (!end.pin || !pin) return 'none';
+    return pin.style === 'socket' || model?.part.kind === 'computer' ? 'none' : 'plug';
+  }
+
+  /** where a cable plugged in at one end only lies: on the table, a little way out from the part */
+  private freeEnd(from: { part: string; pin: string }, at: THREE.Vector3 | null) {
+    const model = this.models.get(from.part);
+    if (!model || !at) return null;
+    const centre = this.atRest(model, model.centre());
+    const away = at.clone().sub(centre).setY(0);
+    if (away.lengthSq() < 1e-6) away.set(1, 0, 0);
+    return at.clone().addScaledVector(away.normalize(), 46).setY(0);
+  }
+
+  /** one plug housing per socket that has wires in it, covering all of them; one usb plug per
+   * computer port */
+  private fitHousings() {
+    const groups = new Map<string, { model: PartModel; pins: string[]; wires: Wire[] }>();
+    for (const { wire, connection } of this.wires) {
+      for (const [i, end] of [connection.from, connection.to].entries()) {
+        if (i === 1 && connection.loose) continue;
+        const model = this.models.get(end.part);
+        const pin = model?.part.pins.find((p) => p.id === end.pin);
+        if (!model || !pin || (pin.style !== 'socket' && model.part.kind !== 'computer')) continue;
+        const key = model.part.kind === 'computer' ? `${end.part}:${pin.id}` : `${end.part}:${pin.side}`;
+        const group = groups.get(key) ?? { model, pins: [], wires: [] };
+        group.pins.push(pin.id);
+        group.wires.push(wire);
+        groups.set(key, group);
+      }
+    }
+    for (const { model, pins, wires } of groups.values()) {
+      let mesh: THREE.Object3D;
+      let base: number;
+      const port = model.part.kind === 'computer' ? model.ports.get(pins[0]) : undefined;
+      if (port) {
+        // a usb-c plug pushed into the port, its cable leaving outwards
+        const along = Math.abs(port.outward.x) > 0.5;
+        mesh = outlinedBox(along ? 14 : 8.4, 3, along ? 8.4 : 14, '#2c2c2e');
+        mesh.position.copy(port.at).addScaledVector(port.outward, 7);
+        base = mesh.position.y;
+      } else {
+        const points = pins.map((id) => model.anchor(id));
+        const box = new THREE.Box3().setFromPoints(points).expandByScalar(1.7);
+        const size = box.getSize(new THREE.Vector3());
+        mesh = outlinedBox(Math.max(size.x, 4.2), 5.5, Math.max(size.z, 4.2), '#f1efe8');
+        base = box.min.y + 1.7 + 2.75;
+        mesh.position.set((box.min.x + box.max.x) / 2, base, (box.min.z + box.max.z) / 2);
+      }
+      model.group.add(mesh);
+      this.housings.push({ mesh, base, wires });
+    }
   }
 
   private clearWires() {
@@ -501,6 +581,8 @@ export class Drawing {
       wire.dispose();
     }
     this.wires = [];
+    for (const { mesh } of this.housings) mesh.removeFromParent();
+    this.housings = [];
   }
 
   /** red pen on the parts or pins that matter, and the camera moved to frame them */
@@ -514,8 +596,10 @@ export class Drawing {
       else pins.set(target.slice(0, dot), [...(pins.get(target.slice(0, dot)) ?? []), target.slice(dot + 1)]);
     }
     for (const c of connections) {
-      for (const e of [c.from, c.to]) if (e.pin) pins.set(e.part, [...(pins.get(e.part) ?? []), e.pin]);
-      else whole.add(e.part);
+      for (const e of c.loose ? [c.from] : [c.from, c.to]) {
+        if (e.pin) pins.set(e.part, [...(pins.get(e.part) ?? []), e.pin]);
+        else if (e.part) whole.add(e.part);
+      }
     }
     for (const [id, model] of this.models) {
       model.highlight(whole.has(id) || pins.has(id), whole.has(id) ? [] : (pins.get(id) ?? []));
@@ -532,6 +616,12 @@ export class Drawing {
     for (const id of new Set(framed)) {
       const model = this.models.get(id);
       if (!model) continue;
+      // on something big (a laptop) only the pins that matter are framed, with room around them
+      const big = model.box.getSize(new THREE.Vector3()).length() > 180;
+      if (big && pins.has(id) && !whole.has(id)) {
+        for (const pin of pins.get(id)!) box.expandByPoint(this.atRest(model, model.anchor(pin)));
+        continue;
+      }
       const corners = [model.box.min, model.box.max];
       for (let i = 0; i < 8; i++) {
         box.expandByPoint(this.atRest(model, new THREE.Vector3(corners[i & 1].x, corners[(i >> 1) & 1].y, corners[(i >> 2) & 1].z)));
@@ -539,6 +629,7 @@ export class Drawing {
     }
     for (const { wire, current } of this.wires) if (current) box.expandByObject(wire.group);
     if (box.isEmpty()) return;
+    box.expandByScalar(6);
     // a single small part is shown with some of the build around it
     const size = box.getSize(new THREE.Vector3());
     if (Math.max(size.x, size.y, size.z) < 40) box.expandByScalar((40 - Math.max(size.x, size.y, size.z)) / 2);
@@ -629,6 +720,8 @@ export class Drawing {
       if (t >= 1) this.arriving.delete(id);
     }
     for (const { wire } of this.wires) wire.tick(now);
+    // a plug housing is pushed home together with the wires in it
+    for (const h of this.housings) h.mesh.position.y = h.base + (1 - Math.min(...h.wires.map((w) => w.seated))) * 7;
 
     this.renderer.render(this.scene, this.camera);
     this.drawCallouts();
@@ -732,6 +825,11 @@ function separate(labels: Callout[]) {
     }
     if (!moved) break;
   }
+}
+
+/** a plastic plug body with its outline */
+function outlinedBox(w: number, h: number, d: number, color: string) {
+  return outlined(new THREE.BoxGeometry(w, h, d), color);
 }
 
 const escapeHtml = (value: string) =>

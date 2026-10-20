@@ -39,6 +39,23 @@ export const example: Guide = {
     from('cp2102', 'usb1', 'USB adapter 1'),
     from('ld2410c', 'ld2410c'),
     from('cp2102', 'usb2', 'USB adapter 2'),
+    {
+      id: 'mac',
+      name: 'Your Mac',
+      model: 'MacBook Pro 14"',
+      kind: 'computer',
+      size: { w: 312, h: 221, t: 15.5 },
+      color: '#3a3b3f',
+      pitch: 12,
+      pins: [
+        { id: 'USB-C 1', label: 'USB-C', side: 'left', index: 0, style: 'socket' },
+        { id: 'USB-C 2', label: 'USB-C', side: 'left', index: 1, style: 'socket' },
+      ],
+      features: [],
+      estimated: false,
+      source: 'apple.com',
+      note: 'The adapters are USB-A, so each goes in through a USB-C adapter.',
+    },
   ],
   steps: [
     {
@@ -46,7 +63,13 @@ export const example: Guide = {
       instruction:
         'Turn the LD2450 so the side with tiny printed labels faces you. Push the white plug of the 4-wire cable into the white socket. It only fits one way.',
       show: ['ld2450'],
-      connections: [],
+      // the cable goes into the sensor first; its other ends stay free until the next steps
+      connections: [
+        { from: { part: 'ld2450', pin: '5V' }, to: { part: '', pin: '' }, wire: 'black', note: '', loose: true },
+        { from: { part: 'ld2450', pin: 'GND' }, to: { part: '', pin: '' }, wire: 'yellow', note: '', loose: true },
+        { from: { part: 'ld2450', pin: 'TX' }, to: { part: '', pin: '' }, wire: 'white', note: '', loose: true },
+        { from: { part: 'ld2450', pin: 'RX' }, to: { part: '', pin: '' }, wire: 'red', note: '', loose: true },
+      ],
       focus: ['ld2450.5V', 'ld2450.RX', 'ld2450.TX', 'ld2450.GND'],
       caution: 'On this cable black is 5V power and yellow is ground, the opposite of the usual colours.',
       check: 'Read which colour lands next to 5V, RX, TX and GND.',
@@ -92,10 +115,13 @@ export const example: Guide = {
     },
     {
       title: 'Plug both adapters into the computer',
-      instruction: 'Plug each USB adapter in (through a USB-C adapter on a Mac). A small light on each adapter turns on.',
-      show: ['ld2450', 'usb1', 'ld2410c', 'usb2'],
-      connections: [],
-      focus: ['usb1', 'usb2'],
+      instruction: 'Plug each USB adapter into the Mac, through a USB-C adapter. A small light on each adapter turns on.',
+      show: ['ld2450', 'usb1', 'ld2410c', 'usb2', 'mac'],
+      connections: [
+        { from: { part: 'usb1', pin: '' }, to: { part: 'mac', pin: 'USB-C 1' }, wire: 'white', note: 'through a USB-C adapter' },
+        { from: { part: 'usb2', pin: '' }, to: { part: 'mac', pin: 'USB-C 2' }, wire: 'white', note: 'through a USB-C adapter' },
+      ],
+      focus: ['usb1', 'usb2', 'mac.USB-C 1', 'mac.USB-C 2'],
       caution: '',
       check: 'Both adapters should show up as serial ports.',
     },

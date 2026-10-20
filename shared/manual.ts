@@ -241,8 +241,8 @@ export function check(draft: Draft): Checked {
       if (partId) errors.push(`${path}.part: no part "${partId}" (parts: ${[...byId.keys()].join(', ')})`);
       return { part: partId, pin };
     }
-    // a cable to a part with no pins (a motor, a battery) plugs into the part itself
-    if (!pin && !part.pins.length) return { part: partId, pin: '' };
+    // no pin: the part itself (a motor's cable, an adapter's USB end)
+    if (!pin) return { part: partId, pin: '' };
     const found = pinOf(part, pin);
     if (!found) {
       errors.push(`${path}.pin: no pin "${pin}" on ${partId} (its pins: ${part.pins.map((p) => p.id).join(', ') || 'none; add them to the part, or leave pin empty'})`);
@@ -264,9 +264,12 @@ export function check(draft: Draft): Checked {
     const s = object(raw, at);
     const connections: Connection[] = list(s.connections, `${at}.connections`, 40).map((rawConnection, j) => {
       const c = object(rawConnection, `${at}.connections[${j}]`);
+      const loose = c.loose === true;
       return {
         from: end(c.from, `${at}.connections[${j}].from`),
-        to: end(c.to, `${at}.connections[${j}].to`),
+        // a cable plugged in at one end only has nothing at the other yet
+        to: loose && !c.to ? { part: '', pin: '' } : end(c.to, `${at}.connections[${j}].to`),
+        ...(loose ? { loose: true } : {}),
         wire: text(c.wire, `${at}.connections[${j}].wire`, 30),
         note: text(c.note, `${at}.connections[${j}].note`, 200),
         ...(c.temporary === true ? { temporary: true } : {}),
@@ -320,6 +323,20 @@ export function check(draft: Draft): Checked {
       times,
     };
   });
+
+  // nothing your hands do should go undrawn: a step that says it plugs, screws or solders
+  // something must show it, and every part should turn up in some step
+  const ACTION = /\b(plug|insert|push|connect|attach|screw|bolt|solder|mount|slide|seat|fit|clip|press|wire|route|fasten|tighten)\w*/i;
+  steps.forEach((step, i) => {
+    const drawn = step.connections.length + (step.place?.length ?? 0) + (step.fasteners?.length ?? 0);
+    const verb = step.instruction.match(ACTION)?.[0];
+    if (verb && !drawn) {
+      warnings.push(`steps[${i}] ("${step.title}") says "${verb}" but draws nothing being done: add the connections (loose: true for a cable plugged in at one end only), place or fasteners so the drawing shows it.`);
+    }
+  });
+  const used = new Set(steps.flatMap((s) => [...s.show, ...(s.place ?? []).map((p) => p.part), ...s.connections.flatMap((c) => [c.from.part, c.to.part]), ...s.focus.map((f) => f.split('.')[0])]));
+  const unused = parts.filter((p) => !used.has(p.id)).map((p) => p.id);
+  if (unused.length) warnings.push(`parts never used in a step: ${unused.join(', ')}. Every part should go in somewhere, or leave it out.`);
 
   const guide: Guide = {
     title: text(draft.title, 'title', 120, true),

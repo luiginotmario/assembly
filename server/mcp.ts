@@ -34,7 +34,14 @@ const vec3 = { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 
 const end = {
   type: 'object',
   required: ['part'],
-  properties: { part: { type: 'string' }, pin: { type: 'string', description: 'A pin id or printed label; leave empty for a part without pins (a motor, a battery pack).' } },
+  properties: {
+    part: { type: 'string' },
+    pin: {
+      type: 'string',
+      description:
+        'A pin id or printed label. A socket pin gets a multi-pin plug housing, a header pin a jumper end. Leave empty for the part itself: a motor\'s cable, an adapter\'s USB end going into a computer.',
+    },
+  },
 };
 
 const manualSchema = {
@@ -56,7 +63,7 @@ const manualSchema = {
     parts: {
       type: 'array',
       description:
-        'Every physical item: boards, modules, motors, printed parts, cases, batteries, cables that matter. Two identical items are two parts. Not jumper wires, screws (those go in steps.fasteners) or tools. Pieces from cad come in by themselves; list one here only to name it better, add a note or sources.',
+        'Every physical item: boards, modules, motors, printed parts, cases, batteries, the computer or power supply things plug into (kind "computer", with its ports as socket pins on its sides). Two identical items are two parts. Not jumper wires or cables between pins (those are connections), screws (steps.fasteners) or tools. Pieces from cad come in by themselves; list one here only to name it better, add a note or sources.',
       items: {
         type: 'object',
         required: ['id', 'name'],
@@ -129,7 +136,7 @@ const manualSchema = {
     steps: {
       type: 'array',
       description:
-        "One physical action per step, in a safe order, like a LEGO manual: put one part in, fasten it, or make the wires between one pair of parts. Use the project's own assembly guide for the order where there is one.",
+        "One physical action per step, in a safe order, like a LEGO manual: put one part in, fasten it, plug one cable, or make the wires between one pair of parts. Use the project's own assembly guide for the order where there is one. Leave nothing out that the hands do: every cable and connector being plugged (even at one end only), every adapter or dongle, jumpers or switches to set, headers to solder, batteries, cards, antennas, and plugging into the computer or power at the end. Each of these must be drawn by the step (connections, place or fasteners), not only described: the person follows the picture.",
       items: {
         type: 'object',
         required: ['title', 'instruction'],
@@ -178,6 +185,11 @@ const manualSchema = {
                 to: end,
                 wire: { type: 'string', description: 'The real wire colour if known, e.g. "black".' },
                 temporary: { type: 'boolean', description: 'true if it is unplugged again after this step (e.g. a cable only used to set up or test one part).' },
+                loose: {
+                  type: 'boolean',
+                  description:
+                    'true if only the from end gets plugged in this step (a cable pushed into a socket, its other ends still free). Leave to out. A later step that plugs the other end uses the same from pin, and the cable continues to it.',
+                },
                 via: {
                   type: 'array',
                   description: 'How the cable is routed: points [x, y, z] in mm (like a pose) or part ids it runs past, in order.',
@@ -218,6 +230,7 @@ Make it look like what the user really has, so there's less to translate and few
 - If the project publishes design files (a URDF, STL/STEP-derived meshes, a GitHub repo of printed parts), read them with read_cad and pass them in cad: every piece then has its real shape and its real place in the build.
 - Give other parts a mesh too when the maker publishes one; otherwise look them up on the web (datasheet, maker or seller page) for size in mm and pinout as printed. Never fill in sizes or pin orders from memory: put the pages in sources, or set estimated: true where you had to guess.
 - Follow the project's own assembly guide for the order, screw sizes and cautions where there is one. What the user confirmed on their real hardware (photos, labels, tests) beats documentation.
+- Leave nothing out. Every cable, connector, adapter, dongle, the computer or power supply it all plugs into: each is a part, and every time the hands plug, insert, screw or solder something, a step draws it. The person follows the pictures, so anything only written in text gets missed.
 
 Verified parts, drawn from measurements of real boards whenever the model matches: ${verifiedParts}.
 

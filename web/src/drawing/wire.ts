@@ -9,6 +9,10 @@ const SEGMENTS = 64;
 const RADIAL = 8;
 const PLUG = 9; // dupont housing length
 
+/** what's on the end of a wire: a jumper's plug, nothing (a shared plug housing or the part
+ * itself holds it), or a plug lying free on the table */
+export type Tip = 'plug' | 'none' | 'free';
+
 export class Wire {
   readonly group = new THREE.Group();
   private readonly tubes: THREE.Mesh[] = [];
@@ -17,6 +21,8 @@ export class Wire {
   private readonly materials: THREE.Material[] = [];
   private started = 0;
   private duration = 0;
+  /** 0 while the plugs are still above their pins, 1 once they're pushed home */
+  seated = 1;
 
   constructor(
     readonly a: THREE.Vector3,
@@ -24,16 +30,20 @@ export class Wire {
     readonly colour: string,
     /** where the cable is routed, in order; without it, it arcs over */
     via: THREE.Vector3[] = [],
+    readonly tips: [Tip, Tip] = ['plug', 'plug'],
   ) {
     const lift = 10 + a.distanceTo(b) * 0.32;
     const up = new THREE.Vector3(0, 1, 0);
+    // a free end comes down to the table rather than standing on a pin
+    const startAt = a.clone().addScaledVector(up, PLUG);
+    const endAt = tips[1] === 'free' ? b.clone() : b.clone().addScaledVector(up, PLUG);
     const curve: THREE.Curve<THREE.Vector3> = via.length
-      ? new THREE.CatmullRomCurve3([a.clone().addScaledVector(up, PLUG), ...via, b.clone().addScaledVector(up, PLUG)], false, 'centripetal')
+      ? new THREE.CatmullRomCurve3([startAt, ...via, endAt], false, 'centripetal')
       : new THREE.CubicBezierCurve3(
-          a.clone().addScaledVector(up, PLUG),
+          startAt,
           a.clone().addScaledVector(up, PLUG + lift),
-          b.clone().addScaledVector(up, PLUG + lift),
-          b.clone().addScaledVector(up, PLUG),
+          tips[1] === 'free' ? b.clone().addScaledVector(up, lift * 0.6) : b.clone().addScaledVector(up, PLUG + lift),
+          endAt,
         );
     this.outline = new THREE.MeshBasicMaterial({ color: ink, side: THREE.BackSide, transparent: true });
     const core = new THREE.MeshBasicMaterial({ color: wireColor(colour), transparent: true });
@@ -43,8 +53,10 @@ export class Wire {
     this.materials.push(this.outline, core);
     this.group.add(outer, inner);
 
-    for (const end of [a, b]) {
+    for (const [i, end] of [a, b].entries()) {
       const plug = new THREE.Group();
+      plug.visible = tips[i] !== 'none';
+      plug.userData.tip = tips[i];
       const body = new THREE.Mesh(
         new THREE.BoxGeometry(2.5, PLUG, 2.5).translate(0, PLUG / 2, 0),
         new THREE.MeshBasicMaterial({ color: '#202020', transparent: true }),
@@ -55,6 +67,12 @@ export class Wire {
       );
       plug.add(body, edge);
       plug.position.copy(end);
+      // a free plug lies on the table, pointing away from where the wire comes from
+      if (tips[i] === 'free') {
+        const away = new THREE.Vector3().subVectors(b, a).setY(0).normalize();
+        plug.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), away);
+        plug.position.y = 1.25;
+      }
       this.materials.push(body.material, edge.material);
       this.plugs.push(plug);
       this.group.add(plug);
@@ -97,12 +115,14 @@ export class Wire {
       tube.geometry.setDrawRange(0, Math.round((count / step) * draw) * step);
     }
     const [start, end] = this.plugs;
-    start.visible = draw > 0.02;
-    end.visible = draw > 0.98;
+    start.visible = draw > 0.02 && this.tips[0] !== 'none';
+    end.visible = draw > 0.98 && this.tips[1] !== 'none';
+    // plugs slide down onto their pins; a free end just lies there
     start.position.y = this.a.y + (1 - seat) * 7;
-    end.position.y = this.b.y + (1 - seat) * 7;
+    if (this.tips[1] !== 'free') end.position.y = this.b.y + (1 - seat) * 7;
     // the wire rides up with its plugs until they're seated
-    for (const tube of this.tubes) tube.position.y = (1 - seat) * 7;
+    for (const tube of this.tubes) tube.position.y = this.tips[1] === 'free' ? 0 : (1 - seat) * 7;
+    this.seated = seat;
     return t < 1;
   }
 

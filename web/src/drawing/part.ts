@@ -32,6 +32,8 @@ export class PartModel {
   private readonly outlines: THREE.LineBasicMaterial[] = [];
   private readonly fills: THREE.Material[] = [];
   private readonly pinMarks = new Map<string, THREE.Mesh>();
+  /** a computer's ports: where each opening is and which way is out of the case */
+  readonly ports = new Map<string, { at: THREE.Vector3; outward: THREE.Vector3 }>();
 
   constructor(readonly part: Part) {
     this.group.userData.partId = part.id;
@@ -96,7 +98,8 @@ export class PartModel {
     const { w, h, t } = part.size;
     // a board placed in the build stands in its z-up frame
     if (part.pose) this.body.rotation.x = Math.PI / 2;
-    this.body.add(part.texture ? this.photoBoard(part.texture) : outlined(new THREE.BoxGeometry(w, t, h).translate(0, t / 2, 0), tint(part.color), ink, part.finish ?? 'gloss'));
+    if (part.kind === 'computer') this.laptop();
+    else this.body.add(part.texture ? this.photoBoard(part.texture) : outlined(new THREE.BoxGeometry(w, t, h).translate(0, t / 2, 0), tint(part.color), ink, part.finish ?? 'gloss'));
 
     for (const feature of part.features) {
       // the photo already shows these; plugs and sockets stay as solid shapes for the wires
@@ -120,6 +123,26 @@ export class PartModel {
       ring.computeLineDistances();
       this.body.add(ring);
     }
+  }
+
+  /** a computer, drawn as a laptop: the base (size is the base), keyboard, trackpad and an open lid */
+  private laptop() {
+    const { w, h, t } = this.part.size;
+    const metal = tint(this.part.color);
+    this.body.add(outlined(new THREE.BoxGeometry(w, t, h).translate(0, t / 2, 0), metal));
+    const keys = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.84, h * 0.4).rotateX(-Math.PI / 2), fill('#2a2a2d'));
+    keys.position.set(0, t + 0.05, -h * 0.13);
+    const pad = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.36, h * 0.27).rotateX(-Math.PI / 2), fill(metal.clone().offsetHSL(0, 0, -0.05)));
+    pad.position.set(0, t + 0.05, h * 0.27);
+    // the lid stands at the back edge, tipped back a little past upright
+    const lid = new THREE.Group();
+    lid.position.set(0, t, -h / 2);
+    lid.rotation.x = -0.2;
+    const shell = outlined(new THREE.BoxGeometry(w, h * 0.92, 4).translate(0, (h * 0.92) / 2, -2), metal);
+    const screen = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.94, h * 0.86), fill('#141416', 'gloss'));
+    screen.position.set(0, (h * 0.92) / 2, 0.05);
+    lid.add(shell, screen);
+    this.body.add(keys, pad, lid);
   }
 
   /** the board with the straightened photo of the real one as its top face */
@@ -218,6 +241,19 @@ export class PartModel {
     const along = pin.side === 'top' || pin.side === 'bottom';
     let top = t;
 
+    if (this.part.kind === 'computer') {
+      // a port in the side of the case; its plug goes in sideways, so the wire leaves a little way out
+      const port = new THREE.Mesh(new THREE.BoxGeometry(along ? 8.6 : 0.6, 2.8, along ? 0.6 : 8.6), fill('#0d0d0f'));
+      const out = this.onSide(pin.side, offset, 0);
+      port.position.set(out.at.x, t / 2, out.at.z);
+      this.body.add(port);
+      const away = out.inward.clone().multiplyScalar(-14);
+      this.anchors.set(pin.id, new THREE.Vector3(out.at.x + away.x, t / 2 - 1.4, out.at.z + away.z));
+      this.ports.set(pin.id, { at: new THREE.Vector3(out.at.x, t / 2, out.at.z), outward: out.inward.clone().negate() });
+      if (!this.part.texture) this.addLabel(pin, out.at.clone(), out.inward, along, 8);
+      return;
+    }
+
     if (pin.style === 'header') {
       const base = outlined(new THREE.BoxGeometry(pitch * 0.96, 2.4, pitch * 0.96), '#2b2b2b', '#000');
       base.position.set(at.x, t + 1.2, at.z);
@@ -307,9 +343,15 @@ export class PartModel {
       const [width, height, depth] = feature.kind === 'usb-a' ? [12, 4.5, 13] : [9, 3.2, 7.5];
       const plug = outlined(new THREE.BoxGeometry(along ? width : depth, height, along ? depth : width), '#e7e4dc');
       const out = depth / 2 + (feature.kind === 'usb-a' ? -2 : 0);
-      const pos = this.onSide(feature.side, offset, -out).at;
+      const placed = this.onSide(feature.side, offset, -out);
+      const pos = placed.at;
       plug.position.set(pos.x, t + height / 2, pos.z);
       this.body.add(plug);
+      // a cable to the board itself (into a computer) leaves from the end of its usb plug
+      if (!this.anchors.has('')) {
+        const tip = pos.clone().addScaledVector(placed.inward, -depth / 2);
+        this.anchors.set('', new THREE.Vector3(tip.x, t + height, tip.z));
+      }
     }
     if (feature.kind === 'antenna') {
       const patch = outlined(new THREE.BoxGeometry(Math.min(w, h) * 0.22, 0.04, Math.min(w, h) * 0.3), '#d8c58e', '#8a7a48');

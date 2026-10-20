@@ -66,7 +66,7 @@ export type Part = {
   finish?: 'matte' | 'gloss' | 'metal';
 };
 
-/** a pin, or a whole part ("" for a part with no pins, like a motor) */
+/** a pin, or the part itself ("": a motor's cable, an adapter's USB end) */
 export type End = { part: string; pin: string };
 
 export type Connection = {
@@ -79,6 +79,8 @@ export type Connection = {
   via?: (Vec3 | string)[];
   /** unplugged again once the step is done (a cable used only to set something up) */
   temporary?: boolean;
+  /** only `from` is plugged in so far: the other end hangs free until a later step plugs it */
+  loose?: boolean;
 };
 
 /** where a part comes in from as it slides into place */

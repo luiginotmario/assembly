@@ -20,8 +20,10 @@ export async function openManual(root: HTMLElement, id: string) {
 
   const panel = $('.title-block');
   // on a wide screen the step panel floats over the drawing's right side
+  const heading = $('.sheet-title');
+  // the drawing keeps clear of the step panel, and on a wide screen of the page's heading too
   const covered = () => ({
-    top: 0,
+    top: getComputedStyle(panel).position === 'absolute' ? heading.offsetTop + heading.offsetHeight + 8 : 0,
     bottom: 0,
     left: 0,
     right: getComputedStyle(panel).position === 'absolute' && panel.offsetParent ? panel.offsetWidth + 40 : 0,
@@ -358,7 +360,7 @@ export async function openManual(root: HTMLElement, id: string) {
     $('[data-wires]').innerHTML = (current?.connections ?? [])
       .map(
         (c) =>
-          `<li><i class="swatch" style="--wire:${esc(c.wire || 'transparent')}"></i>${end(guide, c.from)}<b>→</b>${end(guide, c.to)}<em>${esc(c.wire)}</em></li>`,
+          `<li><i class="swatch" style="--wire:${esc(c.wire || 'transparent')}"></i>${end(guide, c.from)}<b>→</b>${c.loose ? '<span class="end"><strong>free</strong><small>plugged in later</small></span>' : end(guide, c.to)}<em>${esc(c.wire)}</em></li>`,
       )
       .join('');
     $('[data-part-count]').textContent = String(guide.parts.length);
@@ -443,7 +445,8 @@ const host = (url: string) => {
 function end(guide: Guide, at: { part: string; pin: string }) {
   const part = guide.parts.find((p) => p.id === at.part);
   const pin = part?.pins.find((p) => p.id === at.pin);
-  return `<span class="end"><strong>${esc(pin?.label ?? at.pin)}</strong><small>${esc(part?.name ?? at.part)}</small></span>`;
+  // no pin: the part itself, like an adapter's usb end
+  return `<span class="end"><strong>${esc(pin?.label ?? (at.pin || part?.name || at.part))}</strong><small>${esc(at.pin ? (part?.name ?? at.part) : 'itself')}</small></span>`;
 }
 
 const cameraIcon = `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M9.4 4h5.2l1.6 2.2H19a2.5 2.5 0 0 1 2.5 2.5v8.8A2.5 2.5 0 0 1 19 20H5a2.5 2.5 0 0 1-2.5-2.5V8.7A2.5 2.5 0 0 1 5 6.2h2.8L9.4 4Zm2.6 4.3a4.4 4.4 0 1 0 0 8.8 4.4 4.4 0 0 0 0-8.8Zm0 1.8a2.6 2.6 0 1 1 0 5.2 2.6 2.6 0 0 1 0-5.2Z"/></svg>`;
