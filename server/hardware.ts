@@ -16,13 +16,15 @@ const RESEARCH = `You look up one electronics part on the web and report its phy
 - Never fill in a value from memory. If the pages don't state something, put its name in "missing" and leave it 0 (numbers), "" (text) or [] (lists).
 - Prefer the manufacturer's datasheet, then the seller's listing.
 - size: the board itself in millimetres. Lying flat with its printed labels readable: w across, h front to back, t thickness.
+- model: the part as the user named it. Don't swap it for one specific vendor's product unless the query names that vendor; generic modules (like an SSD1306 OLED breakout) are sold by many makers.
 - pins: every pin, pad or socket contact a person connects to, with the label exactly as printed, which edge it's on ("top" = far edge, "bottom" = near edge, "left", "right") and its order along that edge (top/bottom: left to right, left/right: far to near). pitch is the spacing between them.
+  If the pages give the labels and their order but not the edge, still list them, in order, on the "top" edge, and add "pin edge" to missing. Never drop pins whose labels are known.
 - features: usb plugs, sockets, the main chip, antennas, with which edge they're on and where along it (0..1).
 - color: the board colour as hex if a page shows or states it.
 - sources: every page you used.
 - found: false if you can't identify this part at all.`;
 
-const PARTS_IN_PLAN = `List every physical part this build plan uses, once per kind: its everyday name, its exact model as written (or the closest thing to a model the plan gives), and how many. Only parts that get wired or assembled, not tools or the computer screen.`;
+const PARTS_IN_PLAN = `List every physical part this build plan uses, once per kind: its everyday name, its exact model as written (or the closest thing to a model the plan gives), and how many. Only boards, modules, sensors and components that get wired or assembled: not jumper wires, cables, tools or the computer.`;
 
 const BOARDS = `You see a photo of electronics parts, plus zoomed crops. Find each circuit board that's fully visible from above or below.
 For each board that matches a KNOWN PART, give its id and its four corners in 0..1 image coordinates, in the part's own order:
@@ -63,12 +65,31 @@ export async function lookUp(session: Session, query: string): Promise<Part | nu
   changed(session);
   try {
     type Found = Omit<Part, 'id' | 'estimated' | 'source' | 'texture'> & { found: boolean; missing: string[]; sources: Source[] };
-    const { value, sources: cited } = await searched<Found>({
-      name: 'research',
-      system: RESEARCH,
-      user: `Part: ${query}`,
-      schema: schemas.research,
-    });
+    const first = await searched<Found>({ name: 'research', system: RESEARCH, user: `Part: ${query}`, schema: schemas.research });
+    let value = first.value;
+    let cited = first.sources;
+    // the first search often misses the board's size or its full pinout: search again for just those
+    const gaps = [value.size.w > 0 ? '' : 'board dimensions in mm', value.pins.length ? '' : 'pinout with pin labels'].filter(Boolean);
+    if (value.found && gaps.length) {
+      const again = await searched<Found>({
+        name: 'research',
+        system: RESEARCH,
+        user: `Part: ${query}\nAlready found: ${JSON.stringify(value)}\nSearch specifically for its ${gaps.join(' and ')}, and return the whole part with those filled in where the pages state them.`,
+        schema: schemas.research,
+      });
+      const more = again.value;
+      value = {
+        ...value,
+        size: more.size.w > 0 ? more.size : value.size,
+        pins: more.pins.length ? more.pins : value.pins,
+        pitch: value.pitch || more.pitch,
+        features: value.features.length ? value.features : more.features,
+        color: value.color || more.color,
+        sources: [...value.sources, ...more.sources],
+        missing: more.missing,
+      };
+      cited = [...cited, ...again.sources];
+    }
     const sources = dedupe([...value.sources, ...cited]);
     lookup.sources = sources;
     lookup.missing = value.missing;
@@ -78,16 +99,23 @@ export async function lookUp(session: Session, query: string): Promise<Part | nu
     }
     lookup.status = 'found';
     const sized = value.size.w > 0 && value.size.h > 0;
+    const pitch = value.pitch || 2.54;
+    const pins = splitHeaders(value.pins, value.missing);
+    // without a size from the sources, the placeholder at least fits the pins it has
+    const perEdge = Math.max(0, ...(['top', 'bottom', 'left', 'right'] as Side[]).map((s) => pins.filter((p) => p.side === s).length));
+    const twoEdges = pins.some((p) => p.side === 'top') && pins.some((p) => p.side === 'bottom');
     const part: Part = {
       id: slug(value.model || value.name),
       name: value.name,
-      model: value.model,
+      model: value.model || query,
       kind: value.kind,
       // without a size from the sources it's drawn at a placeholder size and marked as a guess
-      size: sized ? { w: value.size.w, h: value.size.h, t: value.size.t || 1.6 } : { w: 30, h: 20, t: 1.6 },
+      size: sized
+        ? { w: value.size.w, h: value.size.h, t: value.size.t || 1.6 }
+        : { w: Math.max(30, perEdge * pitch + 6), h: twoEdges ? 26 : 20, t: 1.6 },
       color: value.color || '#2a6f3a',
-      pitch: value.pitch || 2.54,
-      pins: value.pins,
+      pitch,
+      pins,
       features: value.features,
       estimated: !sized || value.pins.length === 0,
       source: sources[0]?.url ?? 'web search',
@@ -122,11 +150,31 @@ export async function partsOf(session: Session) {
 
 /** every guide part takes the real geometry, pins and photo of the hardware it matches */
 export function matchGuide(session: Session) {
-  for (const part of session.guide?.parts ?? []) {
-    const real = session.parts.find((p) => sameModel(p.model, part.model));
+  const guide = session.guide;
+  if (!guide) return;
+  for (const part of guide.parts) {
+    const real = session.parts.find((p) => p.id === part.id || sameModel(p.model, part.model));
     if (!real) continue;
-    // ids and names stay the guide's (two identical adapters are "usb1" and "usb2")
-    Object.assign(part, structuredClone({ ...real, id: part.id, name: part.name }));
+    const before = part.pins;
+    // ids and names stay the guide's (two identical adapters are "usb1" and "usb2"); a lookup
+    // that found no pins keeps the ones the plan named
+    Object.assign(part, structuredClone({ ...real, id: part.id, name: part.name, pins: real.pins.length ? real.pins : before }));
+    // wires and focus point at the real pins, matched by id or printed label
+    const key = (v: string) => v.toLowerCase().replace(/[^a-z0-9+]/g, '');
+    const rename = new Map<string, string>();
+    for (const old of before) {
+      const match = part.pins.find((p) => key(p.id) === key(old.id) || key(p.label) === key(old.label) || key(p.label) === key(old.id));
+      if (match) rename.set(old.id, match.id);
+    }
+    for (const step of guide.steps) {
+      for (const c of step.connections) {
+        for (const end of [c.from, c.to]) if (end.part === part.id && rename.has(end.pin)) end.pin = rename.get(end.pin)!;
+      }
+      step.focus = step.focus.map((f) => {
+        const [id, pin] = f.split('.');
+        return id === part.id && pin && rename.has(pin) ? `${id}.${rename.get(pin)}` : f;
+      });
+    }
   }
 }
 
@@ -232,6 +280,23 @@ async function layPhoto(session: Session, photo: Photo, full: Buffer, part: Part
   // the inventory copy of this part gets it too
   const real = session.parts.find((p) => sameModel(p.model, part.model));
   if (real && real !== part) Object.assign(real, { texture: part.texture, pins: structuredClone(part.pins), size: part.size });
+}
+
+/**
+ * When the sources give a pinout but not which edge each pin is on, pins all arrive on one
+ * edge. Boards with two headers name them (J2-1, J3-1, ...), so each header gets its own
+ * long edge, the way such boards are built. It stays marked approximate until a photo.
+ */
+function splitHeaders(pins: Pin[], missing: string[]) {
+  const unsure = missing.some((m) => /edge/i.test(m));
+  if (!unsure || new Set(pins.map((p) => p.side)).size > 1) return pins;
+  const header = (p: Pin) => p.id.match(/^([A-Za-z]+\d+)[-_.]/)?.[1];
+  const groups = [...new Set(pins.map(header))];
+  if (groups.length !== 2 || groups.includes(undefined)) return pins;
+  return pins.map((p) => {
+    const side: Side = header(p) === groups[0] ? 'top' : 'bottom';
+    return { ...p, side, index: pins.filter((q) => header(q) === header(p)).indexOf(p) };
+  });
 }
 
 function describePins(part: Part) {

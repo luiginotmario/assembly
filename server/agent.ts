@@ -107,8 +107,8 @@ export async function readPhoto(session: Session, photo: Photo, question = '') {
     ];
     const close = await json<PhotoAnalysis>({ name: 'close_look', system: CLOSE_LOOK, user: content, schema: schemas.closeLook });
     photo.analysis = close;
-    photo.status = close.quality === 'retake' ? 'retake' : 'done';
     if (close.quality === 'retake') {
+      photo.status = 'retake';
       say(session, `Can you retake that one? ${close.retake}`, photo.id, close.visual);
     } else {
       // every board in the photo: recognised or looked up, straightened and laid onto its 3d part
@@ -117,6 +117,8 @@ export async function readPhoto(session: Session, photo: Photo, question = '') {
         added.length ? `Looked up ${added.join(', ')}.` : '',
         captured.length ? `Your photo of ${captured.join(', ')} is now on the drawing.` : '',
       ].filter(Boolean);
+      // only done once the boards are on the drawing too
+      photo.status = 'done';
       say(session, [close.explanation, ...notes].join(' '), photo.id, close.visual);
     }
   } catch (error) {
