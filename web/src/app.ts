@@ -1,5 +1,5 @@
 import QRCode from 'qrcode';
-import type { Guide, Message, Photo, Session, Visual } from '../../shared/types';
+import type { Guide, Message, Part, Photo, Session, Visual } from '../../shared/types';
 import { api, type Info } from './api';
 import { Drawing } from './drawing/drawing';
 import { agentPrompt } from './prompt';
@@ -157,7 +157,10 @@ export function openSession(root: HTMLElement, id: string) {
   function renderNotes() {
     if (!session) return;
     const keyMissing = info && !info.hasKey;
-    $('[data-status]').innerHTML = session.building
+    const searching = session.lookups.filter((l) => l.status === 'searching');
+    $('[data-status]').innerHTML = searching.length
+      ? `<span class="working">Looking up ${esc(searching.map((l) => l.query).join(', '))} on the web…</span>`
+      : session.building
       ? '<span class="working">Drawing the guide…</span>'
       : session.buildError
         ? `<span class="error">${esc(session.buildError)}</span>`
@@ -166,6 +169,19 @@ export function openSession(root: HTMLElement, id: string) {
           : keyMissing
             ? 'No OpenRouter key yet, so the guide agent is off. The example still works.'
             : '';
+    // every web lookup, so it's clear where the specs came from
+    $('[data-lookups]').innerHTML = session.lookups
+      .filter((l) => l.status !== 'searching')
+      .map((l) => {
+        const result =
+          l.status === 'found'
+            ? `found · ${l.sources.length} source${l.sources.length === 1 ? '' : 's'}`
+            : l.status === 'not-found'
+              ? 'not found online'
+              : 'lookup failed';
+        return `<li data-status="${l.status}"><span>${esc(l.query)}</span><em>${result}</em></li>`;
+      })
+      .join('');
     $('[data-photos]').innerHTML = session.photos.map(photoTile).join('') || '<p class="hint">Photos you take show up here, read and checked.</p>';
     const messages = $('[data-messages]');
     const atBottom = messages.scrollHeight - messages.scrollTop - messages.clientHeight < 40;
@@ -200,12 +216,23 @@ export function openSession(root: HTMLElement, id: string) {
           `<li><i class="swatch" style="--wire:${esc(c.wire || 'transparent')}"></i>${end(guide, c.from)}<b>→</b>${end(guide, c.to)}<em>${esc(c.wire)}</em></li>`,
       )
       .join('');
-    $('[data-bom]').innerHTML = guide.parts
-      .map((p, i) => `<li><b>${i + 1}</b>${esc(p.name)}<em>${esc(p.model)}${p.estimated ? ' · approx.' : ''}</em></li>`)
-      .join('');
+    $('[data-bom]').innerHTML = guide.parts.map((p, i) => `<li><b>${i + 1}</b>${esc(p.name)}<em>${esc(p.model)} · ${origin(p)}</em></li>`).join('');
     $<HTMLButtonElement>('[data-prev]').disabled = step <= 0;
     $<HTMLButtonElement>('[data-next]').disabled = step >= guide.steps.length - 1;
   }
+}
+
+/** where a part's shape and pins came from */
+function origin(part: Part) {
+  const link = part.sources?.[0];
+  const from = part.texture
+    ? 'from your photo'
+    : part.source === 'library' || part.source.startsWith('library')
+      ? 'verified on a real board'
+      : link
+        ? `<a href="${esc(link.url)}" target="_blank" rel="noreferrer">from ${esc(new URL(link.url).hostname.replace(/^www\./, ''))}</a>`
+        : 'not found online, approximate';
+  return part.estimated && !part.texture ? `${from} · approximate` : from;
 }
 
 /** a wire end: the pin's printed label, with the part it's on underneath */
@@ -264,6 +291,7 @@ function layout() {
           <button class="link-button" data-example>See an example</button>
         </div>
         <p class="status" data-status></p>
+        <ul class="lookups" data-lookups></ul>
       </section>
 
       <section class="note">

@@ -4,9 +4,31 @@ import type { Guide, Part } from './types';
 // A real build, done by hand once: two radar sensors wired to a Mac through two
 // CP2102 USB adapters. Shown when someone wants to see the tool without an API key.
 
+// straightened photos of the real boards used in this build, and where each pin sits on them
+const photos: Record<string, { texture: string; at: Record<string, [number, number]> }> = {
+  ld2450: { texture: '/example/ld2450.jpg', at: { '5V': [0.12, 0.37], RX: [0.12, 0.48], TX: [0.12, 0.58], GND: [0.12, 0.69] } },
+  ld2410c: {
+    texture: '/example/ld2410c.jpg',
+    at: { TX: [0.22, 0.12], RX: [0.34, 0.09], OUT: [0.46, 0.06], GND: [0.59, 0.04], VCC: [0.72, 0.03] },
+  },
+  cp2102: {
+    texture: '/example/cp2102.jpg',
+    at: { '+5V': [0.03, 0.17], GND: [0.03, 0.37], RXD: [0.03, 0.56], TXD: [0.03, 0.74], '3V3': [0.03, 0.93] },
+  },
+};
+
 const from = (alias: string, id: string, name?: string): Part => {
   const known = library.find((k) => k.aliases.includes(alias))!;
-  return { ...structuredClone(known.part), id, name: name ?? known.part.name };
+  const part = { ...structuredClone(known.part), id, name: name ?? known.part.name };
+  const photo = photos[alias];
+  if (photo) {
+    part.texture = photo.texture;
+    for (const pin of part.pins) {
+      const at = photo.at[pin.id];
+      if (at) pin.at = { u: at[0], v: at[1] };
+    }
+  }
+  return part;
 };
 
 export const example: Guide = {

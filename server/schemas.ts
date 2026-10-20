@@ -68,3 +68,37 @@ export const closeLook = obj({
 });
 
 export const answer = obj({ reply: str, visual });
+
+const point = obj({ x: num, y: num });
+const source = obj({ url: str, title: str });
+
+/** a part's real specs, from what a web search found */
+export const research = obj({
+  found: bool,
+  name: str,
+  model: str,
+  kind: oneOf('board', 'adapter', 'sensor', 'cable', 'computer', 'other'),
+  size: obj({ w: num, h: num, t: num }),
+  color: str,
+  pitch: num,
+  pins: list(obj({ id: str, label: str, side, index: int, style: oneOf('header', 'socket', 'pad') })),
+  features: list(obj({ kind: oneOf('usb-a', 'usb-c', 'socket', 'chip', 'antenna'), side, at: num, label: str })),
+  sources: list(source),
+  missing: list(str),
+  note: str,
+});
+
+/** the physical parts a plan mentions */
+export const partsInPlan = obj({ parts: list(obj({ name: str, model: str, count: int })) });
+
+/** where each board is in a photo, and boards it can't match to a known part */
+export const boards = obj({
+  boards: list(obj({ part: str, whole: bool, corners: list(point) })),
+  unknown: list(obj({ markings: str, description: str })),
+});
+
+/** a corner placed exactly, in each zoomed crop */
+export const corners = obj({ corners: list(obj({ found: bool, at: point })) });
+
+/** pins measured off the straightened board */
+export const pinsOnBoard = obj({ pins: list(obj({ id: str, label: str, u: num, v: num, side })) });

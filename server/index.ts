@@ -142,6 +142,7 @@ app.get('/files/:id/:name', async (c) => {
 
 // the built site (pnpm build); during development vite serves it instead
 app.use('/assets/*', serveStatic({ root: './web/dist' }));
+app.use('/example/*', serveStatic({ root: './web/dist' }));
 app.get('*', serveStatic({ root: './web/dist', path: 'index.html' }));
 
 function lanAddresses() {

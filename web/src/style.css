@@ -283,6 +283,42 @@ textarea:focus {
   display: none;
 }
 
+.lookups {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+.lookups:empty {
+  display: none;
+}
+.lookups li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+.lookups span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lookups em {
+  flex: none;
+  color: var(--color-green);
+  font-style: normal;
+  font-weight: 600;
+}
+.lookups [data-status='not-found'] em,
+.lookups [data-status='error'] em {
+  color: var(--color-red);
+}
+.bom em a {
+  color: var(--color-blue);
+  text-decoration: none;
+}
+
 .tiles {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

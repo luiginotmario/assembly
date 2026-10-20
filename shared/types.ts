@@ -13,7 +13,12 @@ export type Pin = {
   index: number;
   /** header = metal pin, socket = a small plug housing, pad = flat solder pad */
   style: 'header' | 'socket' | 'pad';
+  /** exactly where it sits, measured off a photo of the real board: u across (0 left, 1 right),
+   * v front to back (0 far edge, 1 near edge). Without it, pins spread evenly along their side */
+  at?: { u: number; v: number };
 };
+
+export type Source = { url: string; title: string };
 
 export type Feature = {
   kind: 'usb-a' | 'usb-c' | 'socket' | 'chip' | 'antenna';
@@ -41,6 +46,10 @@ export type Part = {
   /** where the geometry came from: "library", a datasheet url, or "estimate" */
   source: string;
   note: string;
+  /** a straightened photo of the real board's top, laid onto the 3d part */
+  texture?: string;
+  /** the pages the specs came from */
+  sources?: Source[];
 };
 
 export type End = { part: string; pin: string };
@@ -119,10 +128,23 @@ export type Message = {
   createdAt: number;
 };
 
+/** looking a part up on the web */
+export type Lookup = {
+  query: string;
+  status: 'searching' | 'found' | 'not-found' | 'error';
+  sources: Source[];
+  /** what the sources didn't say, so it isn't made up */
+  missing: string[];
+  error: string;
+};
+
 export type Session = {
   id: string;
   createdAt: number;
   plan: string;
+  /** the real hardware: parts looked up or recognised in photos, with their photos laid on */
+  parts: Part[];
+  lookups: Lookup[];
   guide: Guide | null;
   building: boolean;
   buildError: string;

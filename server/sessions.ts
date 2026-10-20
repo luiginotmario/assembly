@@ -24,6 +24,8 @@ export async function create(): Promise<Session> {
     id: id(),
     createdAt: Date.now(),
     plan: '',
+    parts: [],
+    lookups: [],
     guide: null,
     building: false,
     buildError: '',
@@ -44,6 +46,9 @@ export async function get(sessionId: string): Promise<Session | null> {
   if (cached) return cached;
   try {
     const session = JSON.parse(await readFile(path.join(folder(sessionId), 'session.json'), 'utf8')) as Session;
+    // sessions from before parts and lookups existed
+    session.parts ??= [];
+    session.lookups ??= [];
     // anything that was in flight when the server stopped won't finish now
     session.building = false;
     session.thinking = false;

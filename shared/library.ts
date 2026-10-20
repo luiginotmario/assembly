@@ -73,15 +73,10 @@ export const library: Known[] = [
         { kind: 'usb-a', side: 'right', at: 0.5, label: 'USB' },
         { kind: 'chip', side: 'top', at: 0.45, label: 'CP2102' },
       ],
-      estimated: true,
-      source: 'library (length measured from photos)',
+      // size measured off a straightened photo of a real stick (52 x 16 mm including the plug)
+      estimated: false,
+      source: 'library',
       note: 'Pin order varies between makers of these sticks. Read the labels on yours.',
     },
   },
 ];
-
-/** library parts a piece of text mentions */
-export function mentioned(text: string): Known[] {
-  const lower = text.toLowerCase();
-  return library.filter((k) => k.aliases.some((a) => lower.includes(a)));
-}

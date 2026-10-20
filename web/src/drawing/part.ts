@@ -1,9 +1,13 @@
 import * as THREE from 'three';
 import type { Feature, Part, Pin, Side } from '../../../shared/types';
-import { ink, outlined, red, silkscreen, tint } from './look';
+import { fill, ink, lines, outlined, red, silkscreen, tint } from './look';
 
 // One part, drawn from its spec: the board, its pins with their printed labels, and
 // anything that sticks out (usb plugs, sockets). Centred on its own origin, lying flat.
+// When there's a photo of the real board, the photo is its top surface and its pins sit
+// exactly where they were measured; the drawn labels and chip step aside for the real ones.
+
+const loader = new THREE.TextureLoader();
 
 const HEADER = 6; // how tall a header pin stands above the board
 const SOCKET = 4.5; // how tall a socket housing is
@@ -17,10 +21,13 @@ export class PartModel {
 
   constructor(readonly part: Part) {
     const { w, h, t } = part.size;
-    const board = outlined(new THREE.BoxGeometry(w, t, h).translate(0, t / 2, 0), tint(part.color));
-    this.group.add(board);
+    this.group.add(part.texture ? this.photoBoard(part.texture) : outlined(new THREE.BoxGeometry(w, t, h).translate(0, t / 2, 0), tint(part.color)));
 
-    for (const feature of part.features) this.addFeature(feature);
+    for (const feature of part.features) {
+      // the photo already shows these; plugs and sockets stay as solid shapes for the wires
+      if (part.texture && feature.kind !== 'socket') continue;
+      this.addFeature(feature);
+    }
 
     const bySide = new Map<Side, Pin[]>();
     for (const pin of part.pins) bySide.set(pin.side, [...(bySide.get(pin.side) ?? []), pin]);
@@ -41,10 +48,29 @@ export class PartModel {
 
     this.group.traverse((o) => {
       if (o instanceof THREE.LineSegments && o.userData.outline) this.outlines.push(o.material as THREE.LineBasicMaterial);
-      const material = (o as THREE.Mesh).material as THREE.Material | undefined;
-      if (material) this.fills.push(material);
+      // a photo-covered board has one material per face
+      const material = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+      for (const m of [material].flat()) if (m && !this.fills.includes(m)) this.fills.push(m);
     });
     for (const m of this.fills) m.userData.opacity = (m as THREE.MeshBasicMaterial).opacity ?? 1;
+  }
+
+  /** the board with the straightened photo of the real one as its top face */
+  private photoBoard(url: string) {
+    const { w, h, t } = this.part.size;
+    const geometry = new THREE.BoxGeometry(w, t, h).translate(0, t / 2, 0);
+    const texture = loader.load(url);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = 8;
+    const edge = fill(tint(this.part.color, 0.55));
+    const top = new THREE.MeshBasicMaterial({ map: texture, transparent: true });
+    // box faces: +x, -x, +y (top), -y, +z, -z. the image's top edge lands on the far edge
+    const board = new THREE.Mesh(geometry, [edge, edge, top, edge, edge, edge]);
+    const outline = new THREE.LineSegments(new THREE.EdgesGeometry(geometry), lines());
+    outline.userData.outline = true;
+    const group = new THREE.Group();
+    group.add(board, outline);
+    return group;
   }
 
   /** where a pin's wire attaches, in the part's own coordinates */
@@ -89,7 +115,10 @@ export class PartModel {
     const pitch = this.part.pitch || 2.54;
     const offset = (i - (count - 1) / 2) * pitch;
     const inset = pin.style === 'socket' ? 2.6 : 1.4;
-    const { at, inward } = this.onSide(pin.side, offset, inset);
+    const placed = this.onSide(pin.side, offset, inset);
+    const { inward } = placed;
+    // measured off a photo of the real board, or spread evenly along its edge
+    const at = pin.at ? new THREE.Vector3((pin.at.u - 0.5) * this.part.size.w, 0, (pin.at.v - 0.5) * this.part.size.h) : placed.at;
     const along = pin.side === 'top' || pin.side === 'bottom';
     let top = t;
 
@@ -105,7 +134,14 @@ export class PartModel {
       if (i === 0) {
         const length = count * pitch + 2;
         const housing = outlined(new THREE.BoxGeometry(along ? length : 4.6, SOCKET, along ? 4.6 : length), '#fbfaf6');
-        const centre = this.onSide(pin.side, 0, inset).at;
+        const measured = this.part.pins.filter((p) => p.side === pin.side && p.at);
+        const centre = measured.length
+          ? new THREE.Vector3(
+              measured.reduce((s, p) => s + (p.at!.u - 0.5) * this.part.size.w, 0) / measured.length,
+              0,
+              measured.reduce((s, p) => s + (p.at!.v - 0.5) * this.part.size.h, 0) / measured.length,
+            )
+          : this.onSide(pin.side, 0, inset).at;
         housing.position.set(centre.x, t + SOCKET / 2, centre.z);
         this.group.add(housing);
       }
@@ -121,16 +157,8 @@ export class PartModel {
 
     this.anchors.set(pin.id, new THREE.Vector3(at.x, top, at.z));
 
-    // the printed label, just inside the board from the pin
-    const size = Math.min(1.6, pitch * 0.62);
-    const label = silkscreen(pin.label, size, ink, along ? 'left' : inward.x > 0 ? 'left' : 'right');
-    const into = pin.style === 'socket' ? 3.2 : 1.8;
-    if (along) {
-      // text runs into the board, reading away from the edge
-      label.rotation.y = inward.z > 0 ? -Math.PI / 2 : Math.PI / 2;
-    }
-    label.position.set(at.x + inward.x * into, t + 0.03, at.z + inward.z * into);
-    this.group.add(label);
+    // the printed label, just inside the board from the pin (a photo already shows the real one)
+    if (!this.part.texture) this.addLabel(pin, at, inward, along, pitch);
 
     // a red ring that marks this pin when it's the one to look at
     const mark = new THREE.Mesh(
@@ -142,6 +170,19 @@ export class PartModel {
     mark.visible = false;
     this.pinMarks.set(pin.id, mark);
     this.group.add(mark);
+  }
+
+  private addLabel(pin: Pin, at: THREE.Vector3, inward: THREE.Vector3, along: boolean, pitch: number) {
+    const { t } = this.part.size;
+    const size = Math.min(1.6, pitch * 0.62);
+    const label = silkscreen(pin.label, size, ink, along ? 'left' : inward.x > 0 ? 'left' : 'right');
+    const into = pin.style === 'socket' ? 3.2 : 1.8;
+    if (along) {
+      // text runs into the board, reading away from the edge
+      label.rotation.y = inward.z > 0 ? -Math.PI / 2 : Math.PI / 2;
+    }
+    label.position.set(at.x + inward.x * into, t + 0.03, at.z + inward.z * into);
+    this.group.add(label);
   }
 
   private addFeature(feature: Feature) {
