@@ -12,6 +12,8 @@ import { Wire } from './wire';
 const GAP = 26;
 const VIEW = 160; // mm of table visible top to bottom at zoom 1
 
+export type Insets = { top: number; bottom: number; left: number; right: number };
+
 type Callout = { key: string; x: number; y: number; ax: number; ay: number; text: string; kind: 'part' | 'pin' };
 
 export class Drawing {
@@ -32,8 +34,8 @@ export class Drawing {
   constructor(
     private readonly host: HTMLElement,
     private readonly reduceMotion: boolean,
-    /** how many pixels on the right are covered (by the step panel), so framing avoids them */
-    private readonly covered: () => number = () => 0,
+    /** how many pixels the page's floating cards cover on each side, so framing avoids them */
+    private readonly covered: () => Insets = () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
   ) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -53,8 +55,8 @@ export class Drawing {
     this.controls.minZoom = 0.3;
     this.controls.maxZoom = 12;
 
-    // the table: a faint 10 mm grid, like squared drawing paper
-    const grid = new THREE.GridHelper(2000, 200, '#d9d6cc', '#e6e3db');
+    // the table: a faint 10 mm grid
+    const grid = new THREE.GridHelper(2000, 200, '#e6e6eb', '#efeff3');
     grid.position.y = -0.02;
     this.scene.add(grid);
 
@@ -230,9 +232,11 @@ export class Drawing {
     const ys = corners.map((c) => c.y);
     const width = Math.max(...xs) - Math.min(...xs);
     const height = Math.max(...ys) - Math.min(...ys);
-    const free = Math.max(0.35, 1 - this.covered() / Math.max(1, this.host.clientWidth));
+    const cover = this.covered();
+    const freeX = Math.max(0.3, 1 - (cover.left + cover.right) / Math.max(1, this.host.clientWidth));
+    const freeY = Math.max(0.3, 1 - (cover.top + cover.bottom) / Math.max(1, this.host.clientHeight));
     const aspect = this.host.clientWidth / Math.max(1, this.host.clientHeight);
-    const zoom = Math.min((VIEW * aspect * free) / Math.max(width, 1), VIEW / Math.max(height, 1)) * 0.78;
+    const zoom = Math.min((VIEW * aspect * freeX) / Math.max(width, 1), (VIEW * freeY) / Math.max(height, 1)) * 0.8;
     const toZoom = THREE.MathUtils.clamp(zoom, this.controls.minZoom, this.controls.maxZoom);
     if (!animate) {
       this.moveTo(centre, toZoom);
@@ -259,15 +263,16 @@ export class Drawing {
     this.camera.right = (VIEW * aspect) / 2;
     this.camera.top = VIEW / 2;
     this.camera.bottom = -VIEW / 2;
-    // centre the drawing in the part of the sheet the step panel doesn't cover
-    this.camera.setViewOffset(w, h, this.covered() / 2, 0, w, h);
+    // centre the drawing in the part of the screen the cards leave free
+    const cover = this.covered();
+    this.camera.setViewOffset(w, h, (cover.right - cover.left) / 2, (cover.bottom - cover.top) / 2, w, h);
     this.camera.updateProjectionMatrix();
   }
 
   /** call when the covered area changes size: the camera re-frames what it was showing */
-  refit() {
+  refit(animate = false) {
     this.resize();
-    if (this.lastFocus && !this.flight) this.focus(this.lastFocus.targets, this.lastFocus.connections, false);
+    if (this.lastFocus && !this.flight) this.focus(this.lastFocus.targets, this.lastFocus.connections, animate && !this.reduceMotion);
   }
 
   private frame() {

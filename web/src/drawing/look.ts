@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 
-// the drawing's palette: ink on paper, red pen for "do this now", real wire colours
+// the drawing's palette: dark lines on white, system red for "do this now", real wire colours
 
-export const ink = '#151515';
-export const paper = '#f3f2ee';
-export const red = '#c23a22';
+export const ink = '#1d1d1f';
+export const paper = '#ffffff';
+export const red = '#ff3b30';
 
 const wireColors: Record<string, string> = {
   black: '#1b1b1b',
@@ -57,7 +57,7 @@ export function outlined(geometry: THREE.BufferGeometry, color: THREE.ColorRepre
 /** flat text lying on a surface, like the printing on a circuit board */
 export function silkscreen(text: string, height: number, color = ink, align: CanvasTextAlign = 'center') {
   const scale = 64;
-  const font = `600 ${scale}px "IBM Plex Mono", ui-monospace, monospace`;
+  const font = `600 ${scale}px ui-monospace, "SF Mono", Menlo, monospace`;
   const measure = document.createElement('canvas').getContext('2d')!;
   measure.font = font;
   const width = Math.ceil(measure.measureText(text).width) + 8;
