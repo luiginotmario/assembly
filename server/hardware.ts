@@ -1,11 +1,9 @@
-import { writeFile } from 'node:fs/promises';
-import path from 'node:path';
 import sharp from 'sharp';
 import { library } from '../shared/library';
 import type { Lookup, Part, Photo, Pin, Session, Side, Source } from '../shared/types';
 import { image, json, searched, text } from './llm';
 import * as schemas from './schemas';
-import { changed, folder } from './sessions';
+import { changed, putFile } from './sessions';
 import { around, straighten, type Point } from './warp';
 
 // The real hardware. Parts are looked up on the web, never filled in from what a model
@@ -247,8 +245,7 @@ async function layPhoto(session: Session, photo: Photo, full: Buffer, part: Part
   const listed = part.size.w / part.size.h;
   const aspect = part.estimated ? seen : listed;
   const flat = await straighten(full, corners, aspect);
-  const file = `${photo.id}-${part.id}.jpg`;
-  await writeFile(path.join(folder(session.id), file), flat);
+  const texture = await putFile(session.id, `${photo.id}-${part.id}.jpg`, flat);
 
   // measure the pins on the straightened board
   const measured = await json<{ pins: { id: string; label: string; u: number; v: number; side: Side }[] }>({
@@ -274,7 +271,7 @@ async function layPhoto(session: Session, photo: Photo, full: Buffer, part: Part
     along.forEach((p, i) => (p.index = i));
   }
 
-  part.texture = `/files/${session.id}/${file}`;
+  part.texture = texture;
   if (pins.length) part.pins = pins;
   if (part.estimated && aspect !== listed) part.size = { ...part.size, w: Math.sqrt(part.size.w * part.size.h * aspect), h: Math.sqrt((part.size.w * part.size.h) / aspect) };
   // the inventory copy of this part gets it too

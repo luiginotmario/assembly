@@ -739,6 +739,51 @@ textarea:focus {
   box-shadow: 0 2px 8px rgb(255 59 48 / 0.3);
 }
 
+/* ---------- the access code ---------- */
+
+.unlock {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(245 245 247 / 0.6);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+.unlock-card {
+  display: grid;
+  gap: 12px;
+  width: min(360px, 100%);
+  padding: 28px;
+  border-radius: 28px;
+  background: var(--color-card);
+  box-shadow: var(--shadow-float);
+}
+.unlock-card h2 {
+  margin: 0;
+  font: 700 24px var(--font-display);
+  letter-spacing: -0.02em;
+}
+.unlock-card p {
+  margin: 0;
+  color: var(--color-secondary);
+}
+.unlock-card input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 12px 16px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--color-canvas);
+  font: 17px var(--font-sans);
+}
+.unlock-card input:focus {
+  outline: none;
+  box-shadow: 0 0 0 4px rgb(0 113 227 / 0.25);
+}
+
 /* ---------- phone ---------- */
 
 @media (max-width: 900px) {

@@ -1,11 +1,9 @@
-import { readFile, writeFile } from 'node:fs/promises';
-import path from 'node:path';
 import sharp from 'sharp';
 import type { Guide, Message, Photo, PhotoAnalysis, Session, Visual } from '../shared/types';
 import { image, json, text, type Content } from './llm';
 import * as schemas from './schemas';
 import { capture, matchGuide, partsOf } from './hardware';
-import { changed, folder, id } from './sessions';
+import { changed, getFile, id, putFile } from './sessions';
 
 const GUIDE = `You turn a hardware build plan into a step-by-step assembly guide for someone who has never wired electronics before. The guide is drawn as a 3D line drawing, so the geometry you give is what they'll see.
 
@@ -78,7 +76,7 @@ type Box = { x0: number; y0: number; x1: number; y1: number };
 /** a quick look at the whole photo, then zoom in on the small text and read it */
 export async function readPhoto(session: Session, photo: Photo, question = '') {
   try {
-    const full = await readFile(path.join(folder(session.id), photo.file));
+    const full = await getFile(photo.file);
     const overview = await sharp(full).resize({ width: 1600, height: 1600, fit: 'inside' }).jpeg({ quality: 85 }).toBuffer();
 
     const first = await json<FirstLook>({
@@ -92,9 +90,7 @@ export async function readPhoto(session: Session, photo: Photo, question = '') {
     for (const [i, region] of first.zoom.slice(0, 4).entries()) {
       const crop = await zoomInto(full, region.box);
       if (!crop) continue;
-      const name = `${photo.id}-zoom${i}.jpg`;
-      await writeFile(path.join(folder(session.id), name), crop);
-      photo.crops.push(name);
+      photo.crops.push(await putFile(session.id, `${photo.id}-zoom${i}.jpg`, crop));
       crops.push(crop);
     }
     changed(session);

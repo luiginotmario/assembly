@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.1.5",
+    "@vercel/blob": "^2.8.2",
+    "@vercel/functions": "^3.10.1",
     "hono": "^4.13.13",
     "qrcode": "^1.5.4",
     "sharp": "^0.35.5",
@@ -22,7 +24,7 @@
     "@types/three": "^0.186.0",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2",
+    "typescript": "^5.9.3",
     "vite": "^8.3.4"
   },
   "pnpm": {

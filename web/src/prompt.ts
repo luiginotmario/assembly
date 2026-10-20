@@ -1,7 +1,7 @@
 // What you paste into the coding agent that knows your project. It writes the build plan
 // and, if it can run commands, sends it straight here; otherwise you paste it back.
 
-export const agentPrompt = (origin: string, session: string) => `I'm using a visual assembly guide (a 3D step-by-step drawing) to put together the hardware we're working on. Please write the build plan for it.
+export const agentPrompt = (origin: string, session: string, code = '') => `I'm using a visual assembly guide (a 3D step-by-step drawing) to put together the hardware we're working on. Please write the build plan for it.
 
 Include:
 1. What we're building, in one or two sentences.
@@ -14,7 +14,7 @@ Mark what we've confirmed on the real hardware (from photos, labels, tests) vers
 
 Then send the plan to the guide by running:
 
-curl -X POST ${origin}/api/sessions/${session}/plan -H 'content-type: text/plain' --data-binary @- <<'PLAN'
+curl -X POST ${origin}/api/sessions/${session}/plan -H 'content-type: text/plain'${code ? ` -H 'x-access-code: ${code}'` : ''} --data-binary @- <<'PLAN'
 (the plan goes here)
 PLAN
 

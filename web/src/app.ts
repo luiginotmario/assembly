@@ -1,8 +1,9 @@
 import QRCode from 'qrcode';
 import type { Guide, Message, Part, Photo, Session, Visual } from '../../shared/types';
-import { api, type Info } from './api';
+import { accessCode, api, type Info } from './api';
 import { Drawing } from './drawing/drawing';
 import { agentPrompt } from './prompt';
+import { askForCode } from './unlock';
 
 const esc = (value: string) =>
   value.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
@@ -33,7 +34,7 @@ export function openSession(root: HTMLElement, id: string) {
 
   // ---------- the agent prompt ----------
 
-  const prompt = () => agentPrompt(location.origin, id);
+  const prompt = () => agentPrompt(location.origin, id, accessCode());
   $('[data-copy]').addEventListener('click', async (event) => {
     const button = event.currentTarget as HTMLButtonElement;
     await navigator.clipboard.writeText(prompt());
@@ -115,7 +116,8 @@ export function openSession(root: HTMLElement, id: string) {
     info = value;
     const local = ['localhost', '127.0.0.1'].includes(location.hostname);
     const host = local && info.lan[0] ? `${info.lan[0]}${location.port ? `:${location.port}` : ''}` : location.host;
-    const url = `${location.protocol}//${host}/s/${id}`;
+    const code = accessCode();
+    const url = `${location.protocol}//${host}/s/${id}${code ? `?code=${encodeURIComponent(code)}` : ''}`;
     $('[data-qr]').innerHTML = await QRCode.toString(url, { type: 'svg', margin: 0, color: { dark: '#151515', light: '#0000' } });
     $('[data-phone-url]').textContent = url;
     renderNotes();
@@ -150,6 +152,7 @@ export function openSession(root: HTMLElement, id: string) {
       renderStep();
     },
     (up) => root.querySelector('.link')?.toggleAttribute('data-down', !up),
+    askForCode,
   );
 
   // ---------- rendering ----------
@@ -244,8 +247,8 @@ function end(guide: Guide, at: { part: string; pin: string }) {
 
 function photoTile(photo: Photo) {
   const state = { analyzing: 'Reading…', done: photo.analysis?.verdict === 'wrong' ? 'Check wiring' : 'Read', retake: 'Retake', error: 'Failed' }[photo.status];
-  return `<a class="tile" data-state="${photo.status}${photo.analysis?.verdict === 'wrong' ? ' wrong' : ''}" href="/files/${location.pathname.split('/')[2]}/${photo.file}" target="_blank">
-    <img src="/files/${location.pathname.split('/')[2]}/${photo.file}" alt="" loading="lazy" />
+  return `<a class="tile" data-state="${photo.status}${photo.analysis?.verdict === 'wrong' ? ' wrong' : ''}" href="${photo.file}" target="_blank">
+    <img src="${photo.file}" alt="" loading="lazy" />
     <span>${state}</span>
   </a>`;
 }
@@ -253,9 +256,9 @@ function photoTile(photo: Photo) {
 function messageRow(message: Message, session: Session) {
   const photo = message.photo ? session.photos.find((p) => p.id === message.photo) : null;
   const crops = message.role === 'guide' && photo?.crops.length
-    ? `<div class="crops">${photo.crops.map((c) => `<img src="/files/${session.id}/${c}" alt="zoomed in" />`).join('')}</div>`
+    ? `<div class="crops">${photo.crops.map((c) => `<img src="${c}" alt="zoomed in" />`).join('')}</div>`
     : '';
-  const thumb = message.role === 'you' && photo ? `<img class="thumb" src="/files/${session.id}/${photo.file}" alt="" />` : '';
+  const thumb = message.role === 'you' && photo ? `<img class="thumb" src="${photo.file}" alt="" />` : '';
   const show = message.visual && (message.visual.focus.length || message.visual.connections.length || message.visual.step !== null)
     ? `<button class="show" data-show="${message.id}">Show me</button>`
     : '';

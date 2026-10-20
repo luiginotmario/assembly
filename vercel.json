@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "pnpm build",
+  "outputDirectory": "web/dist",
+  "functions": {
+    "api/[...route].ts": { "maxDuration": 300, "memory": 2048 }
+  },
+  "rewrites": [{ "source": "/s/:id", "destination": "/index.html" }]
+}
