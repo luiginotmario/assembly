@@ -6,5 +6,8 @@
   "functions": {
     "api/[...route].ts": { "maxDuration": 300, "memory": 2048 }
   },
-  "rewrites": [{ "source": "/s/:id", "destination": "/index.html" }]
+  "rewrites": [
+    { "source": "/mcp", "destination": "/api/mcp" },
+    { "source": "/m/:id", "destination": "/index.html" }
+  ]
 }

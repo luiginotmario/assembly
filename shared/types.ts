@@ -112,46 +112,29 @@ export type Photo = {
   id: string;
   file: string;
   createdAt: number;
-  status: 'analyzing' | 'done' | 'retake' | 'error';
-  /** zoomed-in crops the agent read labels from */
+  /** the step they were on when they took it */
+  step: number;
+  status: 'reading' | 'done' | 'retake' | 'error';
+  /** zoomed-in crops the labels were read from */
   crops: string[];
   analysis: PhotoAnalysis | null;
+  /** boards from this photo that are now laid onto their 3d parts */
+  captured: string[];
   error: string;
 };
 
-export type Message = {
-  id: string;
-  role: 'you' | 'guide';
-  text: string;
-  photo: string | null;
-  visual: Visual | null;
-  createdAt: number;
-};
+export type Provider = 'openrouter' | 'anthropic' | 'openai';
 
-/** looking a part up on the web */
-export type Lookup = {
-  query: string;
-  status: 'searching' | 'found' | 'not-found' | 'error';
-  sources: Source[];
-  /** what the sources didn't say, so it isn't made up */
-  missing: string[];
-  error: string;
-};
+/** what anyone may see about the key a manual checks photos with; the key itself never leaves the server */
+export type KeyInfo = { provider: Provider; last4: string; connectedAt: number };
 
-export type Session = {
+/** a manual: the guide an agent wrote, the step every device is on, and the photos checked against it */
+export type Manual = {
   id: string;
   createdAt: number;
-  plan: string;
-  /** the real hardware: parts looked up or recognised in photos, with their photos laid on */
-  parts: Part[];
-  lookups: Lookup[];
-  guide: Guide | null;
-  building: boolean;
-  buildError: string;
-  /** the step every device is on */
+  updatedAt: number;
+  guide: Guide;
   step: number;
   photos: Photo[];
-  messages: Message[];
-  /** the guide agent is thinking about a question */
-  thinking: boolean;
+  key: KeyInfo | null;
 };

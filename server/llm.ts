@@ -1,76 +1,98 @@
-// Every model call goes through OpenRouter, asking for JSON that matches a schema.
+import Anthropic from '@anthropic-ai/sdk';
+import type { Provider } from '../shared/types.js';
 
-const BASE = process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1';
-export const MODEL = process.env.MODEL ?? 'anthropic/claude-sonnet-5.5';
+// The model that reads photos, through whichever key the manual was connected with:
+// OpenRouter (signed in, or a pasted key), Anthropic or OpenAI. Every call asks for JSON
+// that matches a schema.
 
-export const hasKey = () => Boolean(process.env.OPENROUTER_API_KEY);
+export type ApiKey = { provider: Provider; key: string };
 
-type Part = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } };
-export type Content = string | Part[];
+export const MODELS: Record<Provider, string> = {
+  openrouter: process.env.MODEL ?? 'anthropic/claude-sonnet-5.5',
+  anthropic: process.env.ANTHROPIC_MODEL ?? 'claude-opus-5-5',
+  openai: process.env.OPENAI_MODEL ?? 'gpt-5',
+};
 
-export const text = (value: string): Part => ({ type: 'text', text: value });
-export const image = (jpeg: Buffer): Part => ({
-  type: 'image_url',
-  image_url: { url: `data:image/jpeg;base64,${jpeg.toString('base64')}` },
-});
-
-type Call = { name: string; system: string; user: Content; schema: object };
-
-export async function json<T>(call: Call): Promise<T> {
-  return (await ask<T>(call, false)).value;
+/** on your own computer, the key in .env works for every manual; never on the hosted site */
+export function serverKey(): ApiKey | null {
+  if (process.env.VERCEL) return null;
+  const key = process.env.OPENROUTER_API_KEY?.trim();
+  return key ? { provider: 'openrouter', key } : null;
 }
 
-/** the same, with live web search switched on; returns the pages it found too */
-export async function searched<T>(call: Call) {
+type Block = { type: 'text'; text: string } | { type: 'image'; jpeg: Buffer };
+export type Content = Block[];
+
+export const text = (value: string): Block => ({ type: 'text', text: value });
+export const image = (jpeg: Buffer): Block => ({ type: 'image', jpeg });
+
+type Call = { name: string; system: string; user: string | Block[]; schema: object };
+
+export async function json<T>(key: ApiKey, call: Call): Promise<T> {
+  const blocks = typeof call.user === 'string' ? [text(call.user)] : call.user;
+  const raw = key.provider === 'anthropic' ? await viaAnthropic(key.key, call, blocks) : await viaChat(key, call, blocks);
+  // some models wrap json in a code fence or add a sentence around it
+  const body = raw.replace(/^[\s\S]*?```(?:json)?\s*|\s*```[\s\S]*$/g, '');
   try {
-    return await ask<T>(call, true);
-  } catch (error) {
-    // not every model takes search and a strict format together: ask for plain json instead
-    if (!String(error).includes('OpenRouter said 4')) throw error;
-    return ask<T>({ ...call, system: `${call.system}\n\nAnswer with only a JSON object matching this schema, nothing else:\n${JSON.stringify(call.schema)}` }, true, false);
+    return JSON.parse(body.slice(body.indexOf('{'), body.lastIndexOf('}') + 1)) as T;
+  } catch {
+    throw new Error(`The model didn't answer in the expected format: ${body.slice(0, 200)}`);
   }
 }
 
-async function ask<T>(call: Call, web: boolean, strict = true): Promise<{ value: T; sources: { url: string; title: string }[] }> {
-  if (!hasKey()) throw new Error('Add OPENROUTER_API_KEY to the .env file to use the guide agent.');
-  const response = await fetch(`${BASE}/chat/completions`, {
+async function viaAnthropic(apiKey: string, call: Call, blocks: Block[]) {
+  const client = new Anthropic({ apiKey });
+  const response = await client.beta.messages.create({
+    model: MODELS.anthropic,
+    max_tokens: 16000,
+    system: call.system,
+    messages: [
+      {
+        role: 'user',
+        content: blocks.map((b) =>
+          b.type === 'text'
+            ? { type: 'text' as const, text: b.text }
+            : { type: 'image' as const, source: { type: 'base64' as const, media_type: 'image/jpeg' as const, data: b.jpeg.toString('base64') } },
+        ),
+      },
+    ],
+    output_config: { format: { type: 'json_schema', schema: call.schema as Record<string, unknown> } },
+    // if a safety check declines (a photo of wiring shouldn't), the request reruns on another model
+    betas: ['server-side-fallback-2026-07-01'],
+    fallbacks: 'default',
+  });
+  if (response.stop_reason === 'refusal') throw new Error('The model declined to look at this photo.');
+  return response.content.flatMap((b) => (b.type === 'text' ? [b.text] : [])).join('');
+}
+
+/** openrouter and openai speak the same chat completions api */
+async function viaChat(key: ApiKey, call: Call, blocks: Block[]) {
+  const base = key.provider === 'openai' ? 'https://api.openai.com/v1' : (process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1');
+  const response = await fetch(`${base}/chat/completions`, {
     method: 'POST',
     headers: {
-      authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+      authorization: `Bearer ${key.key}`,
       'content-type': 'application/json',
-      'x-title': 'assembly',
+      ...(key.provider === 'openrouter' ? { 'x-title': 'Assembly', 'http-referer': 'https://assemblyguide.vercel.app' } : {}),
     },
     body: JSON.stringify({
-      model: MODEL,
+      model: MODELS[key.provider],
       messages: [
         { role: 'system', content: call.system },
-        { role: 'user', content: call.user },
+        {
+          role: 'user',
+          content: blocks.map((b) =>
+            b.type === 'text' ? b : { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${b.jpeg.toString('base64')}` } },
+          ),
+        },
       ],
-      ...(strict ? { response_format: { type: 'json_schema', json_schema: { name: call.name, strict: true, schema: call.schema } } } : {}),
-      ...(web ? { plugins: [{ id: 'web', max_results: 8 }] } : {}),
+      response_format: { type: 'json_schema', json_schema: { name: call.name, strict: true, schema: call.schema } },
     }),
+    signal: AbortSignal.timeout(240_000),
   });
-  if (!response.ok) {
-    throw new Error(`OpenRouter said ${response.status}: ${(await response.text()).slice(0, 300)}`);
-  }
-  type Annotation = { type: string; url_citation?: { url: string; title?: string } };
-  const body = (await response.json()) as {
-    choices?: { message?: { content?: string; annotations?: Annotation[] } }[];
-    error?: { message: string };
-  };
-  if (body.error) throw new Error(`OpenRouter: ${body.error.message}`);
-  const message = body.choices?.[0]?.message;
-  const content = message?.content ?? '';
-  // some models wrap json in a code fence or add a sentence around it
-  const raw = content.replace(/^[\s\S]*?```(?:json)?\s*|\s*```[\s\S]*$/g, '');
-  const start = raw.indexOf('{');
-  const end = raw.lastIndexOf('}');
-  const sources = (message?.annotations ?? [])
-    .filter((a) => a.type === 'url_citation' && a.url_citation?.url)
-    .map((a) => ({ url: a.url_citation!.url, title: a.url_citation!.title ?? a.url_citation!.url }));
-  try {
-    return { value: JSON.parse(raw.slice(start, end + 1)) as T, sources };
-  } catch {
-    throw new Error(`The model didn't answer in the expected format: ${raw.slice(0, 200)}`);
-  }
+  const name = key.provider === 'openai' ? 'OpenAI' : 'OpenRouter';
+  if (!response.ok) throw new Error(`${name} said ${response.status}: ${(await response.text()).slice(0, 300)}`);
+  const body = (await response.json()) as { choices?: { message?: { content?: string } }[]; error?: { message: string } };
+  if (body.error) throw new Error(`${name}: ${body.error.message}`);
+  return body.choices?.[0]?.message?.content ?? '';
 }

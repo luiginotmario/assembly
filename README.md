@@ -1,51 +1,62 @@
 # hi, this is assembly
 
-putting hardware together for the first time is confusing when all you get is text. "connect TX to RXD" means nothing if you've never held a jumper wire. this turns a build plan into a 3D assembly drawing you follow one step at a time, and checks your wiring from a photo.
+putting hardware together for the first time is confusing when all you get is text. "connect TX to RXD" means nothing if you've never held a jumper wire. assembly lets your coding agent draw you a 3D assembly manual of the build, one step at a time, and checks your wiring from a photo when you're stuck.
 
 - free and open source (MIT)
-- runs on your own computer. no accounts, no sign-up.
-- the ai goes through [openrouter](https://openrouter.ai), with any vision model you like
+- no accounts, no sign-up. a manual is a link.
+- your agent does the thinking (it already knows your parts). photo checks run on your own key: openrouter, anthropic or openai
 
 ## how it works
 
-1. **your agent writes the plan.** copy the prompt from the sidebar into the coding agent that already knows your project (it knows which parts you bought and how they connect). it writes a build plan and sends it straight to the page, or prints it for you to paste.
-2. **the guide draws it.** every part becomes a 3D line drawing with its real pins and printed labels. each step draws itself in: the wires arc from pin to pin in their real colours and plug on, with the pins to look at circled in red. cautions (power, polarity, pins to leave empty) are in red too.
-3. **your phone checks it.** open the same session on your phone (scan the qr code), take a photo, and the guide looks at it, zooms in on the tiny printed labels to read them, and tells you if the wiring matches the step. if the photo's too blurry it asks you to retake it.
-4. **ask anything.** the answer comes back drawn: it jumps to the step, circles the pin, animates the wire.
+1. **add it to your agent.** assembly is an MCP server. in claude code:
 
-the phone and the computer stay in sync: photos, steps and answers show up on both.
+   ```
+   claude mcp add --transport http assembly https://assemblyguide.vercel.app/mcp
+   ```
 
-parts it knows exactly (from datasheets, checked on real boards) are drawn exactly. anything else is drawn from the datasheet if the model knows it, or estimated and marked with a dashed outline.
+   any other agent: add `https://assemblyguide.vercel.app/mcp` as an MCP server (streamable http).
 
-## try it
+2. **ask for a manual.** "make me an assembly manual for this build." the agent looks every part up (board size, pinout as printed), writes the steps and gets back a link. parts we've measured on real boards (LD2450, LD2410C, CP2102) are drawn from those measurements.
+3. **follow it.** every part is a 3D drawing with its real pins. each step draws its wires in, pin to pin, in their real colours, with the pins to look at circled in red and cautions (power, polarity, pins to leave empty) in red too. open it on your phone with the qr code; both stay on the same step.
+4. **stuck? take a photo.** "is this the part you mean?" the page zooms into the tiny printed labels, reads them and checks them against the step. the first time, it asks you to sign in with openrouter or paste a key; the key is stored encrypted with that manual and only used for its photos. boards that show up whole get straightened and laid onto their 3D part, so the drawing looks like your hardware.
+
+questions go to your agent, which can read your photo checks (`get_manual`) and fix the manual (`update_manual`).
+
+### tools
+
+| tool | what it does |
+| --- | --- |
+| `create_manual` | checks the manual (every wire must land on a real pin), stores it, returns the link and an edit token |
+| `update_manual` | replaces the guide; open pages update by themselves, photos of your boards stay |
+| `get_manual` | the guide, the step you're on, and every photo check |
+
+no MCP? the same over plain http: `POST /api/manuals` with the manual as JSON, `PUT /api/manuals/:id` with `authorization: Bearer <edit token>`, `GET /api/manuals/:id/checks`.
+
+## run it yourself
 
 - install [node 22](https://nodejs.org) and [pnpm](https://pnpm.io)
-- copy `.env.example` to `.env` and add your [openrouter key](https://openrouter.ai/keys)
-- then:
+- `pnpm install && pnpm dev`, then open http://localhost:5180
+- add it to your agent with `claude mcp add --transport http assembly http://localhost:5180/mcp`
+- optional: put `OPENROUTER_API_KEY` in `.env` and every local manual checks photos with it, no connecting
 
-```
-pnpm install
-pnpm dev
-```
+to run it without dev tools: `pnpm build && pnpm start`, then http://localhost:8787.
 
-- open http://localhost:5180 — done. hit **see an example** to see a real build (two radar sensors wired to a mac) without a key.
-
-on your phone, use the **open on your phone** qr code (same wifi).
-
-to run it without dev tools: `pnpm build && pnpm start`, then open http://localhost:8787.
+on vercel it needs an upstash redis database (manuals) and a blob store (photos) linked to the project, and a `KEY_SECRET` env var (any long random string) to seal keys with.
 
 ## how it's built
 
 ```
-shared/types.ts      the guide format: parts, pins, connections, steps
-shared/library.ts    parts we know exactly
-server/              a small node server (hono): sessions, live sync, uploads, the guide agent
-server/agent.ts      plan -> guide, photo -> zoom in -> read -> check, question -> answer + what to draw
-web/src/drawing/     the 3D drawing (three.js): parts from their specs, wires, steps, callouts
-web/src/app.ts       the page: agent prompt, plan, photos, questions, the step panel
+shared/types.ts       the manual format: parts, pins, connections, steps
+shared/manual.ts      checking what an agent sends, with errors that say what to fix
+shared/library.ts     parts measured on real boards
+server/mcp.ts         the MCP server and its three tools
+server/photos.ts      photo -> zoom in -> read labels -> check against the step -> lay boards onto the drawing
+server/keys.ts        sealing keys, openrouter sign-in
+web/src/manual.ts     the page: the drawing, the step, the photo check
+web/src/drawing/      the 3D drawing (three.js): parts from their specs, wires, steps, callouts
 ```
 
-the model can be any vision model on openrouter: set `MODEL` in `.env` (default `anthropic/claude-sonnet-5.5`).
+no framework on the page: plain typescript and vite. the landing page is a few KB; the 3D drawing loads only when you open a manual.
 
 ## if you wanna make an addition + pr, or just wanna remix it for yourself, go for it
 

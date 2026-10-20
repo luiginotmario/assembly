@@ -1,29 +1,20 @@
-import type { Session } from '../../shared/types';
+import type { KeyInfo, Manual } from '../../shared/types';
 
-export type Info = { model: string; hasKey: boolean; lan: string[]; locked: boolean };
+export type Info = { ready: boolean; lan: string[] };
 
-// the access code, if the site has one: remembered on this device, and picked up from a
-// link (the qr code to open it on a phone carries it)
-const fromLink = new URLSearchParams(location.search).get('code');
-if (fromLink) {
-  localStorage.setItem('access-code', fromLink);
-  history.replaceState(null, '', location.pathname);
-}
-export const accessCode = () => localStorage.getItem('access-code') ?? '';
-export const setAccessCode = (code: string) => localStorage.setItem('access-code', code.trim());
+/** the server said this manual has no key to check photos with yet */
+export class NeedsKey extends Error {}
 
-/** asks for the code when the server says it's needed, then the page starts over */
-export class Locked extends Error {}
-
-async function request(url: string, init: RequestInit = {}) {
-  const response = await fetch(url, { ...init, headers: { ...init.headers, 'x-access-code': accessCode() } });
-  if (response.status === 401) throw new Locked('This needs the access code.');
-  if (!response.ok) throw new Error(((await response.json().catch(() => ({}))) as { error?: string }).error ?? `${response.status}`);
-  return response.json();
+async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
+  const response = await fetch(url, init);
+  const body = (await response.json().catch(() => ({}))) as { error?: string; needsKey?: boolean };
+  if (response.status === 409 && body.needsKey) throw new NeedsKey(body.error);
+  if (!response.ok) throw new Error(body.error ?? `${response.status}`);
+  return body as T;
 }
 
-const post = (url: string, body?: unknown) =>
-  request(url, {
+const post = <T>(url: string, body?: unknown) =>
+  request<T>(url, {
     method: 'POST',
     headers: body === undefined ? {} : { 'content-type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -43,44 +34,62 @@ async function shrink(file: File) {
 }
 
 export const api = {
-  info: () => fetch('/api/info').then((r) => r.json() as Promise<Info>),
-  create: () => post('/api/sessions') as Promise<{ id: string }>,
-  plan: (id: string, plan: string) => post(`/api/sessions/${id}/plan`, { plan }),
-  example: (id: string) => post(`/api/sessions/${id}/example`),
-  step: (id: string, step: number) => post(`/api/sessions/${id}/step`, { step }),
-  ask: (id: string, text: string) => post(`/api/sessions/${id}/ask`, { text }),
-  photo: async (id: string, file: File, question: string) => {
+  info: () => request<Info>('/api/info'),
+  manual: (id: string) => request<Manual>(`/api/manuals/${id}`),
+  step: (id: string, step: number) => post(`/api/manuals/${id}/step`, { step }),
+  photo: async (id: string, file: File, step: number) => {
     const form = new FormData();
     form.append('photo', await shrink(file));
-    form.append('question', question);
-    await request(`/api/sessions/${id}/photos`, { method: 'POST', body: form });
+    form.append('step', String(step));
+    await request(`/api/manuals/${id}/photos`, { method: 'POST', body: form });
   },
+  savedKey: () => request<{ saved: KeyInfo | null }>('/api/saved-key'),
+  useSavedKey: (id: string) => post<{ key: KeyInfo }>(`/api/manuals/${id}/key`, { saved: true }),
+  pasteKey: (id: string, key: string) => post<{ key: KeyInfo }>(`/api/manuals/${id}/key`, { key }),
+  forgetKey: (id: string) => request(`/api/manuals/${id}/key`, { method: 'DELETE' }),
   /**
-   * the whole session now and after every change, on every device: the page checks the
-   * session's version every second and a half (only while it's on screen) and fetches it
-   * when it moves
+   * the manual now and after every change, on every device: the page checks its version
+   * every second and a half (only while it's on screen) and fetches it when it moves
    */
-  follow: (id: string, onSession: (session: Session) => void, onLink: (up: boolean) => void, onLocked: () => void) => {
+  follow: (id: string, onManual: (manual: Manual) => void, onLink: (up: boolean) => void, onMissing: (why: string) => void) => {
     let seen = -1;
     let stopped = false;
     const check = async () => {
       if (stopped) return;
       if (document.visibilityState === 'visible' || seen < 0) {
         try {
-          const { version } = (await request(`/api/sessions/${id}/version`)) as { version: number };
+          const { version } = await request<{ version: number }>(`/api/manuals/${id}/version`);
           if (version !== seen) {
             seen = version;
-            onSession((await request(`/api/sessions/${id}`)) as Session);
+            onManual(await api.manual(id));
           }
           onLink(true);
         } catch (error) {
-          if (error instanceof Locked) return onLocked();
+          if (seen < 0) return onMissing((error as Error).message);
           onLink(false);
         }
       }
       setTimeout(check, 1500);
     };
     void check();
-    return () => (stopped = true);
+    // coming back to the tab (from the openrouter sign-in, say) checks straight away
+    const now = () => document.visibilityState === 'visible' && void refresh();
+    const refresh = async () => {
+      try {
+        const { version } = await request<{ version: number }>(`/api/manuals/${id}/version`);
+        if (version !== seen) {
+          seen = version;
+          onManual(await api.manual(id));
+        }
+      } catch {
+        // the regular check will say so
+      }
+    };
+    document.addEventListener('visibilitychange', now);
+    addEventListener('message', (event) => event.origin === location.origin && event.data === 'assembly:connected' && void refresh());
+    return () => {
+      stopped = true;
+      document.removeEventListener('visibilitychange', now);
+    };
   },
 };
