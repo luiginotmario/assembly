@@ -197,7 +197,8 @@ input:focus {
 /* ---------- what assembly is ---------- */
 
 .landing {
-  max-width: 40rem;
+  box-sizing: content-box;
+  max-width: 42rem;
   margin: 0 auto;
   padding: 16svh 24px 72px;
 }
@@ -227,6 +228,8 @@ input:focus {
 .how li {
   position: relative;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
   gap: 8px;
   padding: 20px 22px 20px 62px;
   border-radius: 24px;
@@ -260,6 +263,7 @@ input:focus {
   overflow-wrap: anywhere;
 }
 .command {
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;
