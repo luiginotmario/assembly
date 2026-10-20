@@ -4,10 +4,23 @@
   "buildCommand": "pnpm build",
   "outputDirectory": "web/dist",
   "functions": {
-    "api/[...route].ts": { "maxDuration": 300, "memory": 2048 }
+    "api/index.ts": {
+      "maxDuration": 300,
+      "memory": 2048
+    }
   },
   "rewrites": [
-    { "source": "/mcp", "destination": "/api/mcp" },
-    { "source": "/m/:id", "destination": "/index.html" }
+    {
+      "source": "/mcp",
+      "destination": "/api"
+    },
+    {
+      "source": "/api/:path*",
+      "destination": "/api"
+    },
+    {
+      "source": "/m/:id",
+      "destination": "/index.html"
+    }
   ]
 }

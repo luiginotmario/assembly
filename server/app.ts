@@ -9,7 +9,7 @@ import * as manuals from './manuals.js';
 import { createManual, describeManual, mcp, originOf, updateManual } from './mcp.js';
 import { readPhoto } from './photos.js';
 
-// The api, the same locally (server/index.ts) and on Vercel (api/[...route].ts).
+// The api, the same locally (server/index.ts) and on Vercel (api/index.ts).
 
 export const app = new Hono();
 
